@@ -216,6 +216,37 @@ def test_storage_deduplicates_snapshots_but_keeps_duplicate_ordinals_and_endpoin
     assert "fingerprint" not in cols
 
 
+def test_storage_insert_counts_support_accurate_aggregate_retrieval_telemetry(tmp_path):
+    storage = SnapshotStorage(str(tmp_path / "telemetry.db"), max_days=0)
+    rows = parse_network_log(SYNTHETIC_XML)
+
+    # First observation inserts all rows, including the repeated identical row.
+    inserted = storage.save_native_events("http://router.local", rows)
+    assert inserted == 3
+    assert len(rows) - inserted == 0
+
+    # Replaying the same response recognizes every prior identity.
+    inserted = storage.save_native_events("http://router.local", rows)
+    assert inserted == 0
+    assert len(rows) - inserted == 3
+
+    # A response containing prior rows plus one new row reports an exact split.
+    new_row = {
+        "category": "eventlog", "prior": "warning", "text": "Synthetic new event",
+        "time": "opaque-new-time", "t": "opaque-new-t",
+    }
+    mixed = [*rows, new_row]
+    inserted = storage.save_native_events("http://router.local", mixed)
+    assert inserted == 1
+    assert len(mixed) - inserted == 3
+
+    # Reordering the same response does not change any event identities.
+    reordered = [new_row, *reversed(rows)]
+    inserted = storage.save_native_events("http://router.local", reordered)
+    assert inserted == 0
+    assert len(reordered) - inserted == 4
+
+
 def test_native_event_read_is_bounded_and_unknown_endpoint_is_empty(tmp_path):
     storage = SnapshotStorage(str(tmp_path / "events.db"), max_days=0)
     rows = parse_network_log(SYNTHETIC_XML)
