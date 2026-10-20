@@ -79,12 +79,13 @@ def test_ch7465_optional_driver_contribution_failure_keeps_standard_driver(
         def get(self, key, default=None):
             return default
 
-    def fail_optional_driver(module_id, module_path, spec):
+    def fail_optional_driver(module_id, module_path, spec, *, builtin=False):
+        assert builtin is True
         if module_id == "ch7465":
             if failure == "missing":
                 raise ManifestError("driver contribution file not found")
             return CH7465Driver  # Valid DOCSIS driver class, but not the native-log extension.
-        return original_loader(module_id, module_path, spec)
+        return original_loader(module_id, module_path, spec, builtin=builtin)
 
     monkeypatch.setattr(module_contributions, "load_module_driver", fail_optional_driver)
     app = Flask("ch7465-contribution-fallback-test")
