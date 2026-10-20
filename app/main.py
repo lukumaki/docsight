@@ -138,7 +138,7 @@ def polling_loop(config_mgr, storage, stop_event, runtime: DocsightRuntime):
     """Flat orchestrator: tick every second, let each collector decide when to poll."""
     config = config_mgr.get_all()
 
-    log.info("Modem: %s (user: %s)", config["modem_url"], config["modem_user"])
+    log.info("Modem connection settings loaded")
     log.info("Poll interval: %ds", config["poll_interval"])
 
     # Connect MQTT (optional, loaded from module if available)
@@ -308,7 +308,14 @@ def polling_loop(config_mgr, storage, stop_event, runtime: DocsightRuntime):
                     collector.record_success()
                 else:
                     collector.record_failure()
-                    log.warning("%s: %s", collector.name, result.error)
+                    if collector.name == "modem":
+                        log.warning(
+                            "%s poll failed (%s)",
+                            collector.name,
+                            type(result.error).__name__,
+                        )
+                    else:
+                        log.warning("%s: %s", collector.name, result.error)
             except _TransientHtmlError:
                 collector.record_skip()
                 log.warning(
@@ -316,7 +323,10 @@ def polling_loop(config_mgr, storage, stop_event, runtime: DocsightRuntime):
                 )
             except Exception as e:
                 collector.record_failure()
-                log.error("%s error: %s", collector.name, e)
+                if collector.name == "modem":
+                    log.error("%s error (%s)", collector.name, type(e).__name__)
+                else:
+                    log.error("%s error: %s", collector.name, e)
                 if collector.name in ("modem", "demo"):
                     runtime.update_state(error=e)
 

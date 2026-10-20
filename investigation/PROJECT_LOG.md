@@ -227,3 +227,21 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved risks:** Live firmware compatibility, native-log completeness/pagination, and timestamp semantics remain unverified. The test suite and CI have not exercised the new code yet. Existing database and directory permissions depend on deployment context.
 
 **Next step:** Review the local diff and direct security checks, then obtain approval before staging, committing, pushing, or triggering CI.
+
+## Step 4.33 — Sensitive configuration logging review
+
+**Report date:** 2026-10-20
+
+**Objective:** Remove unnecessary modem configuration and arbitrary error-detail exposure from the core CH7465 polling logs without changing authentication or connection behavior. This was an offline-only correction; no modem request, DOCSight startup, or test-data access occurred.
+
+**Findings:** `app/main.py` logged the configured modem URL and username at polling-loop startup. The exact line is present in the PR base commit `04d0c7d5`, so it predates this feature branch. The core polling error paths also logged arbitrary modem exception/result text. `CH7465Driver.get_connection_info()` logged raw exception text, and an unrecognized login response was copied into the authentication exception message. These paths could propagate URL or modem-supplied details into diagnostics. The new CH7465 native-log path itself does not log raw event XML, SID, or `sessionToken` values.
+
+**Changes:** Startup now logs a generic settings-loaded message while preserving the poll interval and selected driver diagnostics. Core modem polling failures log the error class only; non-modem collector diagnostics are unchanged. CH7465 connection-info failures log the exception class only, and unrecognized login responses use a fixed generic message while known safe firmware errors remain readable. Added synthetic tests for startup configuration redaction, polling exception redaction, CH7465 connection-info error logging, and unexpected authentication responses.
+
+**Additional review note:** The bounded source scan found separate session-related or raw exception diagnostics in other modem-driver implementations, including `app/drivers/ultrahub7.py` and `app/drivers/sagemcom.py`. Those drivers are outside this correction and were not changed; a broader logging audit remains a separate task.
+
+**Tests and checks:** Pytest is unavailable in both the repository virtual environment and system Python, and no dependencies were installed. Python AST syntax checks passed for the modified source and test files. Direct synthetic smoke checks passed for startup-log redaction, both core modem error-log paths, an unexpected authentication response, and CH7465 connection-info error logging; they made no network requests. The repository's documentation/fixture secret-pattern scan passed across 449 candidates, and `git diff --check` passed. The pytest regression cases and CI remain unverified.
+
+**Unresolved:** The test suite and GitHub Actions have not verified this correction. The separate driver logging paths noted above remain for review. Live modem compatibility and behavior were not retested.
+
+**Next step:** Review the local diff and checks, then await separate approval before any Git staging, commit, push, or CI run.

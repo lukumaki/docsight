@@ -121,6 +121,41 @@ def test_authentication_material_is_not_logged(caplog):
     driver._session.close()
 
 
+def test_unrecognized_authentication_response_is_not_in_error_message():
+    marker = "SYNTHETIC_MODEM_RESPONSE_DETAIL_MARKER"
+    driver = CH7465Driver(
+        "http://synthetic-router.local", "synthetic-user", "synthetic-password",
+        play_firmware=False,
+    )
+    driver._session.get = MagicMock(return_value=MagicMock())
+    driver._set_data = MagicMock(return_value=marker)
+    try:
+        with pytest.raises(RuntimeError) as error:
+            driver.login()
+        assert marker not in str(error.value)
+        assert "unrecognized modem response" in str(error.value)
+    finally:
+        driver._finalizer.detach()
+        driver._session.close()
+
+
+def test_connection_info_failure_logs_only_exception_type(caplog):
+    marker = "SYNTHETIC_MODEM_ERROR_DETAIL_MARKER"
+    driver = CH7465Driver(
+        "http://synthetic-router.local", "synthetic-user", "synthetic-password",
+        play_firmware=False,
+    )
+    driver._get_data = MagicMock(side_effect=RuntimeError(marker))
+    try:
+        with caplog.at_level("WARNING", logger="docsis.driver.ch7465"):
+            assert driver.get_connection_info() == {}
+        assert marker not in caplog.text
+        assert "RuntimeError" in caplog.text
+    finally:
+        driver._finalizer.detach()
+        driver._session.close()
+
+
 def test_native_driver_bounded_request_uses_inherited_session():
     driver = CH7465NativeLogDriver("http://synthetic-router.local", "u", "p", play_firmware=False)
     response = MagicMock()

@@ -121,21 +121,21 @@ class CH7465Driver(ModemDriver):
         if response_text.startswith("success") and 'SID=' in response_text:
             sid = response_text.split('SID=', 1)[1]
         else:
-            error_msg = response_text[:32]
+            error_msg = "unrecognized modem response"
             # Readable error messages for the common cases documented in the Web-UI javascript code
-            if "KDGloginincorrect" in error_msg:
+            if "KDGloginincorrect" in response_text:
                 try:
                     retry = self._get_login_fail_count()
                 except Exception:
                     retry = '???'
                 error_msg = f"password incorrect - try again in {retry} seconds"
-            elif "idloginrightincorrect" in error_msg:
+            elif "idloginrightincorrect" in response_text:
                 error_msg = "user not allowed to login"
-            elif "KDGsuperUserPwEmpty" in error_msg:
+            elif "KDGsuperUserPwEmpty" in response_text:
                 error_msg = "please set a password before login"
-            elif "KDGsuperUserPwTimeout" in error_msg:
+            elif "KDGsuperUserPwTimeout" in response_text:
                 error_msg = "login timeout"
-            elif "KDGchangePW" in error_msg or 'passwordneedstochange' in error_msg:
+            elif "KDGchangePW" in response_text or 'passwordneedstochange' in response_text:
                 error_msg = "password must be changed"
             raise RuntimeError(f"Modem authentication failed: {error_msg}")
 
@@ -215,7 +215,7 @@ class CH7465Driver(ModemDriver):
                 "connection_type": mode,
             }
         except Exception as e:
-            log.warning("Failed to get connection info: %s", e)
+            log.warning("Failed to get connection info (%s)", type(e).__name__)
             return {}
 
 
