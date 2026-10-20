@@ -15,6 +15,14 @@ FINGERPRINT_VERSION = 1
 _FIELDS = ("prior", "text", "time", "t")
 
 
+def _event_fingerprint(scope: str, category: str, values: tuple[str, ...], ordinal: int) -> str:
+    payload = json.dumps(
+        [scope, category, *values, ordinal], ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(b"docsight-native-event-v1\0" + payload).hexdigest()
+
+
 def _canonical_endpoint(endpoint: str) -> str:
     parts = urlsplit(str(endpoint))
     if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
@@ -63,11 +71,7 @@ class NativeEventMethods:
                 values = tuple(str(row.get(field, "")) for field in _FIELDS)
                 ordinal = seen.get((category, *values), 0)
                 seen[(category, *values)] = ordinal + 1
-                payload = json.dumps(
-                    [scope, category, *values, ordinal], ensure_ascii=False,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-                fingerprint = hashlib.sha256(b"docsight-native-event-v1\0" + payload).hexdigest()
+                fingerprint = _event_fingerprint(scope, category, values, ordinal)
                 cur = conn.execute(
                     """INSERT OR IGNORE INTO modem_native_events
                     (device_scope,category,fingerprint_version,fingerprint,occurrence_ordinal,

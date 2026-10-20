@@ -63,9 +63,14 @@ class DriverRegistry:
         if type_key in self._community:
             raise ValueError("Driver key is already registered")
         self._community[type_key] = driver_class
-        self._display_names[type_key] = display_name
-        if hints:
-            self._hints[type_key] = deepcopy(hints)
+        # A built-in extension may replace the implementation for an existing
+        # key while retaining that driver's established catalog metadata. This
+        # keeps display names, manufacturer grouping, and fallback metadata
+        # stable. Community overrides continue to own their supplied metadata.
+        if not (builtin_module and fallback_to_builtin and type_key in self._builtin):
+            self._display_names[type_key] = display_name
+            if hints:
+                self._hints[type_key] = deepcopy(hints)
         if builtin_module:
             self._builtin_module_drivers.add(type_key)
         if fallback_to_builtin and type_key in self._builtin:

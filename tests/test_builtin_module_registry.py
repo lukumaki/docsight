@@ -37,6 +37,7 @@ def test_builtin_registry_matches_tracked_manifest_dirs():
 
 def test_ch7465_builtin_module_registers_extended_driver():
     from app.app_factory import default_module_loader_factory
+    from app.drivers import driver_registry as pristine_registry
     from app.modules.ch7465.driver import CH7465NativeLogDriver
 
     class Config:
@@ -54,6 +55,11 @@ def test_ch7465_builtin_module_registers_extended_driver():
 
     assert isinstance(driver, CH7465NativeLogDriver)
     assert registry.is_builtin("ch7465")
+    assert registry is not pristine_registry
+    assert dict(registry.get_available_drivers())["ch7465"] == dict(
+        pristine_registry.get_available_drivers()
+    )["ch7465"]
+    assert registry.get_driver_hints()["ch7465"] == pristine_registry.get_driver_hints()["ch7465"]
     driver._finalizer.detach()
     driver._session.close()
 

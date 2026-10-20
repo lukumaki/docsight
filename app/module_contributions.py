@@ -183,7 +183,9 @@ def load_module_routes(
         log.warning("Module '%s': routes contribution skipped", module_id)
 
 
-def _load_module_class(module_id: str, module_path: str, spec: str, kind: str):
+def _load_module_class(
+    module_id: str, module_path: str, spec: str, kind: str, *, builtin: bool = False
+):
     """Load a contributed class from a module-owned Python file."""
     if ":" not in spec:
         log.warning("Module '%s': invalid %s contribution spec", module_id, kind)
@@ -196,23 +198,33 @@ def _load_module_class(module_id: str, module_path: str, spec: str, kind: str):
     dir_name = os.path.basename(module_path)
     mod_name = f"app.modules.{dir_name}.{kind}"
     package_name = None
-    if kind == "driver":
+    if kind == "driver" and not builtin:
         # A fresh, real package preserves sibling imports without reusing classes
-        # or helper modules from another application or a previous load.
+        # or helper modules from another application or a previous load. This
+        # isolation applies to community code; trusted built-ins use their
+        # canonical app.modules import so type identity remains stable.
         package_name = "_docsight_driver_" + uuid4().hex
         package = ModuleType(package_name)
         package.__path__ = [os.path.realpath(module_path)]
         package.__package__ = package_name
         sys.modules[package_name] = package
         mod_name = f"{package_name}.{kind}"
+    elif builtin:
+        mod_name = f"app.modules.{dir_name}.{os.path.splitext(os.path.basename(filename))[0]}"
     try:
-        im_spec = importlib.util.spec_from_file_location(mod_name, file_path)
-        if im_spec is None or im_spec.loader is None:
-            log.warning("Module '%s': %s contribution import unavailable", module_id, kind)
-            return None
-        mod = importlib.util.module_from_spec(im_spec)
-        sys.modules[mod_name] = mod
-        im_spec.loader.exec_module(mod)
+        if builtin:
+            # Built-in contributions are trusted application modules. Resolve
+            # them canonically so callers and registries share their class
+            # identity while each app still owns a separate registry instance.
+            mod = importlib.import_module(mod_name)
+        else:
+            im_spec = importlib.util.spec_from_file_location(mod_name, file_path)
+            if im_spec is None or im_spec.loader is None:
+                log.warning("Module '%s': %s contribution import unavailable", module_id, kind)
+                return None
+            mod = importlib.util.module_from_spec(im_spec)
+            sys.modules[mod_name] = mod
+            im_spec.loader.exec_module(mod)
     except Exception:
         if package_name:
             for name in list(sys.modules):
@@ -228,12 +240,14 @@ def _load_module_class(module_id: str, module_path: str, spec: str, kind: str):
     return cls
 
 
-def load_module_driver(module_id: str, module_path: str, spec: str):
+def load_module_driver(
+    module_id: str, module_path: str, spec: str, *, builtin: bool = False
+):
     """Resolve a concrete ModemDriver implementation without registering it."""
     from .drivers.base import ModemDriver
 
     try:
-        cls = _load_module_class(module_id, module_path, spec, "driver")
+        cls = _load_module_class(module_id, module_path, spec, "driver", builtin=builtin)
         methods = ("login", "get_docsis_data", "get_device_info", "get_connection_info")
         if (not isinstance(cls, type) or not issubclass(cls, ModemDriver)
                 or inspect.isabstract(cls)
@@ -429,7 +443,9 @@ def resolve_module_contribution(
     if "driver" in contributes:
         try:
             resolved_driver = _redacted_resolution(
-                "driver", lambda: load_module_driver(mod.id, mod.path, contributes["driver"])
+                "driver", lambda: load_module_driver(
+                    mod.id, mod.path, contributes["driver"], builtin=mod.builtin
+                )
             )
             if mod.builtin and mod.id == "ch7465":
                 from .drivers.ch7465 import CH7465Driver

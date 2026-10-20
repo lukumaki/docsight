@@ -5,7 +5,7 @@ These instructions apply to work in this DOCSight checkout for the Hungarian ONE
 ## Project objective and evidence
 
 - Investigate whether the modem's internal Network Log can be collected safely and correlated with DOCSight's connection and signal monitoring.
-- Treat `docs/PROJECT_LOG.md` as the chronological record and `docs/ARCHITECTURE.md` as the current verified technical model and design record.
+- Treat `investigation/PROJECT_LOG.md` as the chronological record and `investigation/ARCHITECTURE.md` as the current verified technical model and design record. Product-facing documentation belongs in the GitHub Wiki; do not add Markdown files under `docs/`.
 - Label claims as **Verified**, **User-reported**, **Proposed**, **Assumption**, or **Unresolved** where that distinction matters. Do not promote a proposal or user report to a verified source-code or live-device fact.
 - Inspect existing files before editing. Preserve prior phase reports and unrelated DOCSight content. Prefer additive, focused edits.
 
@@ -29,8 +29,8 @@ These instructions apply to work in this DOCSight checkout for the Hungarian ONE
 
 After each completed development phase:
 
-1. Append a dated report to `docs/PROJECT_LOG.md` with objectives, findings, changes, tests, unresolved issues, and next steps. Keep earlier reports unchanged.
-2. Update `docs/ARCHITECTURE.md` when verified technical findings or design decisions change; mark proposals and unresolved points clearly.
+1. Append a dated report to `investigation/PROJECT_LOG.md` with objectives, findings, changes, tests, unresolved issues, and next steps. Keep earlier reports unchanged.
+2. Update `investigation/ARCHITECTURE.md` when verified technical findings or design decisions change; mark proposals and unresolved points clearly.
 3. Update the project-status section of `README.md` when the objective or current phase status changes, without replacing the upstream README content.
 4. Verify that documentation agrees with the actual checkout and test results. State clearly when a test was not run.
 

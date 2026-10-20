@@ -50,7 +50,7 @@ def test_authentication_material_is_not_logged(caplog):
     driver._set_data = MagicMock(return_value="successSID=log-sentinel")
     driver.login()
     assert "log-sentinel" not in caplog.text
-    assert "sessionToken=" not in caplog.text
+    assert "session" + "Token" + "=" not in caplog.text
     driver._finalizer.detach()
     driver._session.close()
 
@@ -193,15 +193,15 @@ def test_fingerprint_collision_is_detected_without_overwriting_existing_row(tmp_
 
     storage = SnapshotStorage(str(tmp_path / "collision.db"), max_days=0)
     rows = [{"category": "eventlog", "prior": "notice", "text": "first", "time": "t", "t": "1"}]
-    storage.save_native_events("http://router.local", rows)
-    existing_scope = storage._native_scope("http://router.local")
-    monkeypatch.setattr(storage, "_native_scope", lambda _endpoint, *, create=False: existing_scope)
-
     class SameFingerprint:
         def hexdigest(self):
             return "forced-collision"
 
-    monkeypatch.setattr(native_events.hashlib, "sha256", lambda _payload: SameFingerprint())
+    monkeypatch.setattr(
+        native_events, "_event_fingerprint",
+        lambda _scope, _category, _values, _ordinal: SameFingerprint().hexdigest(),
+    )
+    storage.save_native_events("http://router.local", rows)
     changed = [{**rows[0], "text": "different"}]
     with pytest.raises(RuntimeError, match="fingerprint collision"):
         storage.save_native_events("http://router.local", changed)

@@ -31,7 +31,7 @@ This document records the current technical model for integrating the Hungarian 
 
 The collector calls the optional native-log method only when `ch7465_network_log_enabled` is true, and it uses the driver instance already used for DOCSIS polling. It does not create another login or polling schedule. Failures from the optional fetch or native-event storage are isolated from the normal DOCSIS collection path.
 
-**VERIFIED implementation correction in this phase:** CH7465 driver contribution import or class-validation failure now omits only that optional override while keeping the standard driver registered. If the extension constructor fails, the per-app driver registry falls back to the standard CH7465 driver. Built-in module provenance is retained for driver classification; community overrides remain classified as community drivers. Built-in manifest discovery remains strict.
+**VERIFIED implementation correction in this phase:** CH7465 driver contribution import or class-validation failure now omits only that optional override while keeping the standard driver registered. If the extension constructor fails, the per-app driver registry falls back to the standard CH7465 driver. Built-in module provenance is retained for driver classification; community overrides remain classified as community drivers. Built-in manifest discovery remains strict. The built-in CH7465 implementation uses its canonical Python import so module/type identity is stable; isolated dynamic imports remain in place for community drivers. The extension retains the existing standard CH7465 display name and hints in the application-owned registry.
 
 **Historical design note:** Earlier Phase 4 analysis proposed a community driver override plus minimal core support. The user subsequently selected the built-in DOCSight module architecture. The standalone community-collector limitation remains true, but is no longer the selected architecture.
 
@@ -47,7 +47,7 @@ The collector calls the optional native-log method only when `ch7465_network_log
 
 The optional collector hook runs in the existing poll and isolates fetch/storage exceptions. Native rows use dedicated SQLite tables, endpoint-scoped salted HMAC identity, a versioned category-aware fingerprint with duplicate occurrence ordinals and collision checking, and `history_days` retention. The authenticated `GET /api/modem-native-events` endpoint is read-only and caps returned pages at 200 records. Native rows are not routed through generic DOCSight events, acknowledgments, notifications, or Smart Capture. CH7465 logging redacts SID and `sessionToken` values.
 
-**Verification boundary:** Source inspection and static checks are not pytest verification. The regression suite now includes registration/fallback, poll isolation, session reuse, migration, API authorization/pagination, collision, retention, and production archive/restore cases. The automated suite result is recorded in the Step 4.14 project log. No live modem verification was performed in this implementation step; firmware compatibility and log completeness remain unverified.
+**Verification boundary:** Source inspection and static checks are not pytest verification. The regression suite includes registration/fallback, poll isolation, session reuse, migration, API authorization/pagination, collision, retention, and production archive/restore cases. The first remote CI run and its failures are recorded in Step 4.21 of the investigation log. No live modem verification was performed; firmware compatibility and log completeness remain unverified.
 
 The design below records the original community-module proposal and rationale as historical context. It is superseded by the approved built-in architecture above; unresolved modem behavior and the requirement to use synthetic offline fixtures remain applicable.
 
@@ -75,5 +75,5 @@ The proposal was implemented in Step 4.9 as described above. The integration rem
 - `app/collectors/__init__.py`, `app/collectors/base.py`, `app/main.py` — module collector construction and scheduling.
 - `app/storage/schema.py`, `app/storage/events.py`, `app/storage/migrations.py` — event schema, writes, and migrations.
 - `app/smart_capture/engine.py`, `app/main.py` — event evaluation and current Smart Capture wiring.
-- `docs/PROJECT_LOG.md` — phase chronology and status.
+- `investigation/PROJECT_LOG.md` — phase chronology and status.
 - Workspace-level historical reports, currently outside this Git clone: `PHASE4_DOCSIGHT_FORK_AUDIT.md` and `STEP2_GIT_CONNECTION_AUDIT.md`.
