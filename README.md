@@ -98,3 +98,13 @@ The code is [MIT-licensed](LICENSE). The DOCSight name and logo are covered by t
 <p align="center">
   <sub><strong>DOCSight</strong> = <strong>DOCS</strong>IS + In<strong>sight</strong> (+ a quiet <em>sigh</em> from every cable internet user)</sub>
 </p>
+
+## CH7465ONE Development Track
+
+This checkout is also being used for a user-specific investigation of the Hungarian ONE Compal CH7465ONE (`CH7465ONE-NCIP-6.15.20.5-3-SH`). This work is not an upstream firmware-support or compatibility claim. Its objective is to correlate the modem's internal Network Log with DOCSight monitoring of intermittent internet outages while preserving the standard CH7465 authentication path and avoiding simultaneous modem administration sessions.
+
+**Current status (2026-10-20):** Phases 1–4 are documented in [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md). The approved read-only capture confirmed the Network Log request as `POST /xml/getter.xml` with `fun=13`, returning XML records with `prior`, `text`, `time`, and `t`. Timestamp timezone and `t` semantics remain unresolved. The architecture audit recommends a community driver override plus minimal upstream core support so retrieval can reuse the active authenticated driver session and persist events idempotently. No implementation changes have been made.
+
+**Step 2 completed (2026-10-20):** Local Git remotes are configured with `origin` pointing to [lukumaki/docsight](https://github.com/lukumaki/docsight) and `upstream` pointing to [itsDNNS/docsight](https://github.com/itsDNNS/docsight). The current `main` branch tracks `upstream/main`. No fetch was performed, and no application implementation changes have been made. See the project log for the audit history and verification record.
+
+For ongoing findings and the distinction between verified facts, user-confirmed captures, proposals, and unresolved questions, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Follow [`AGENTS.md`](AGENTS.md) for project-specific safety and documentation rules.

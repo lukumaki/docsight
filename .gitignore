@@ -14,6 +14,9 @@ config.json
 docs/*.md
 docs/**/*.md
 docs/superpowers/
+# Track the CH7465ONE project history and verified architecture.
+!docs/PROJECT_LOG.md
+!docs/ARCHITECTURE.md
 
 # Internal development docs (belong in workspace, not repo)
 PHASE-*.md
