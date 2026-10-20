@@ -224,6 +224,9 @@ class CleanupMethods:
         events_deleted = self.delete_old_events(self.max_days)
         if events_deleted:
             log.info("Cleaned up %d old events (before %s)", events_deleted, cutoff)
+        native_deleted = self.delete_old_native_events(self.max_days)
+        if native_deleted:
+            log.info("Cleaned up %d old modem-native events (before %s)", native_deleted, cutoff)
         try:
             with self._write() as conn:
                 sc_deleted = conn.execute(

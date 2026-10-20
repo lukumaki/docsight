@@ -14,6 +14,7 @@ BUILTIN_MODULE_DIRS: tuple[str, ...] = (
     "backup",
     "bnetz",
     "bqm",
+    "ch7465",
     "comparison",
     "connection_monitor",
     "de_tkg_compensation",

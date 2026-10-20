@@ -242,6 +242,55 @@ def _segment_applied(_conn: sqlite3.Connection) -> bool:
     return False
 
 
+def _native_events_applied(conn: sqlite3.Connection) -> bool:
+    required = {"id", "device_scope", "category", "fingerprint_version", "fingerprint",
+                "occurrence_ordinal", "prior", "text", "time", "t", "ingested_at_utc"}
+    identity_ok = {"id", "salt"} <= table_columns(conn, "modem_native_event_identity")
+    indexes = (
+        {row[1]: row[2] for row in conn.execute("PRAGMA index_list('modem_native_events')")}
+        if table_exists(conn, "modem_native_events") else {}
+    )
+    return (required <= table_columns(conn, "modem_native_events") and identity_ok
+            and indexes.get("idx_native_events_identity") == 1
+            and "idx_native_events_ingested" in indexes
+            and "idx_native_events_scope_ingested" in indexes)
+
+
+def _apply_native_events(conn: sqlite3.Connection) -> None:
+    required = {"id", "device_scope", "category", "fingerprint_version", "fingerprint",
+                "occurrence_ordinal", "prior", "text", "time", "t", "ingested_at_utc"}
+    if (table_exists(conn, "modem_native_events")
+            and not required <= table_columns(conn, "modem_native_events")):
+        raise RuntimeError("Incompatible modem_native_events table exists")
+    if (table_exists(conn, "modem_native_event_identity")
+            and not {"id", "salt"} <= table_columns(conn, "modem_native_event_identity")):
+        raise RuntimeError("Incompatible modem_native_event_identity table exists")
+    conn.execute("""CREATE TABLE IF NOT EXISTS modem_native_event_identity (
+        id INTEGER PRIMARY KEY CHECK (id=1), salt BLOB NOT NULL CHECK(length(salt)=32))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS modem_native_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        device_scope TEXT NOT NULL,
+        category TEXT NOT NULL CHECK(category IN ('eventlog','wifieventlog')),
+        fingerprint_version INTEGER NOT NULL,
+        fingerprint TEXT NOT NULL,
+        occurrence_ordinal INTEGER NOT NULL CHECK(occurrence_ordinal >= 0),
+        prior TEXT NOT NULL, text TEXT NOT NULL, time TEXT NOT NULL, t TEXT NOT NULL,
+        ingested_at_utc TEXT NOT NULL,
+        UNIQUE(device_scope, fingerprint_version, fingerprint))""")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_native_events_ingested "
+        "ON modem_native_events(ingested_at_utc)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_native_events_scope_ingested "
+        "ON modem_native_events(device_scope, ingested_at_utc)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_native_events_identity "
+        "ON modem_native_events(device_scope, fingerprint_version, fingerprint)"
+    )
+
+
 CORE_MIGRATIONS: tuple[Migration, ...] = (
     Migration("core-0001-baseline", _apply_core_baseline, _core_baseline_applied),
     Migration(
@@ -256,6 +305,7 @@ CORE_MIGRATIONS: tuple[Migration, ...] = (
         _snapshot_columns_applied,
     ),
     Migration("core-0005-meta-version", _apply_meta_version, _meta_version_applied),
+    Migration("core-0006-modem-native-events", _apply_native_events, _native_events_applied),
 )
 
 def _segment_demo_flag_applied(conn: sqlite3.Connection) -> bool:

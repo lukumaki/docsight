@@ -1,0 +1,11 @@
+{
+  "id": "ch7465",
+  "name": "CH7465 Native Network Log",
+  "description": "Built-in optional native Network Log retrieval for Compal CH7465 using DOCSight's authenticated session.",
+  "version": "0.1.0",
+  "author": "DOCSight",
+  "minAppVersion": "2026.2",
+  "type": "driver",
+  "contributes": {"driver": "driver.py:CH7465NativeLogDriver"},
+  "hints": {"default_url": "http://192.168.100.1", "default_user": "admin"}
+}

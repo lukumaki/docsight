@@ -249,7 +249,12 @@ def register_plan(app: Flask, plan: RegistrationPlan) -> None:
     for contribution in complete.modules:
         if contribution.driver_class is not None:
             drivers.register_module_driver(contribution.module_id, contribution.driver_class,
-                                    contribution.info.name, contribution.info.hints)
+                                    contribution.info.name, contribution.info.hints,
+                                    builtin_module=contribution.builtin,
+                                    fallback_to_builtin=(
+                                        contribution.builtin
+                                        and contribution.module_id == "ch7465"
+                                    ))
     for rule in plan.rules:
         app.add_url_rule(
             rule.rule, endpoint=rule.endpoint, view_func=rule.view,

@@ -140,7 +140,7 @@ class CH7465Driver(ModemDriver):
             raise RuntimeError(f"Modem authentication failed: {error_msg}")
 
         self._session.cookies.set("SID", sid)
-        log.info("Auth OK (SID: %s)", sid)
+        log.info("CH7465 authentication succeeded")
 
     def get_docsis_data(self) -> DocsisData:
         """Query DOCSIS channel data."""
@@ -242,7 +242,6 @@ class CH7465Driver(ModemDriver):
             timeout=10,
             allow_redirects=False,
         )
-        log.debug("Auth cookies: SID=%s; sessionToken=%s", self._session.cookies.get("SID", ""), self._session.cookies.get("sessionToken", ""))
         r.raise_for_status()
         return r.text
 
@@ -261,7 +260,6 @@ class CH7465Driver(ModemDriver):
             timeout=10,
             allow_redirects=False,
         )
-        log.debug("Auth cookies: SID=%s; sessionToken=%s", self._session.cookies.get("SID", ""), self._session.cookies.get("sessionToken", ""))
         r.raise_for_status()
         return r.text
 

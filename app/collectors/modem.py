@@ -37,7 +37,10 @@ class ModemCollector(Collector):
 
     name = "modem"
 
-    def __init__(self, driver, analyzer_fn, event_detector, storage, mqtt_pub, web, poll_interval, notifier=None, smart_capture=None):
+    def __init__(
+        self, driver, analyzer_fn, event_detector, storage, mqtt_pub, web,
+        poll_interval, notifier=None, smart_capture=None, native_events_enabled=False,
+    ):
         super().__init__(poll_interval)
         self._driver = driver
         self._analyzer = analyzer_fn
@@ -47,6 +50,7 @@ class ModemCollector(Collector):
         self._web = web
         self._notifier = notifier
         self._smart_capture = smart_capture
+        self._native_events_enabled = bool(native_events_enabled)
         self._device_info: DeviceInfo | None = None
         self._connection_info: ConnectionInfo | None = None
         self._discovery_published = False
@@ -181,6 +185,18 @@ class ModemCollector(Collector):
                 self._web.update_state(connection_info=self._connection_info)
 
         data = self._driver.get_docsis_data()
+        if self._native_events_enabled:
+            try:
+                native_fetch = getattr(self._driver, "get_native_events", None)
+                if callable(native_fetch):
+                    rows = native_fetch()
+                    self._storage.save_native_events(self._driver._url, rows)
+            except Exception as exc:
+                # Keep modem-supplied payloads and request details out of logs.
+                log.warning(
+                    "Optional CH7465 native Network Log collection failed (%s)",
+                    type(exc).__name__,
+                )
         previous_analysis = self._storage.get_latest_snapshot()
         last_spike_ts = self._storage.get_latest_spike_timestamp()
         analysis = self._analyzer(data)  # Call injected analyzer function

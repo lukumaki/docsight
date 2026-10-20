@@ -137,3 +137,57 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved issues:** The personal fork's remote history has not been fetched or compared. Phase 3 Network Log retrieval remains a proposal; no implementation has been started.
 
 **Next steps:** Stop after Step 2 and await further user instructions. Do not proceed to Step 3 or fetch without explicit approval.
+
+## Step 4.7 — Manual Network Log response comparison and design update
+
+**Report date:** 2026-10-20
+
+**Objective:** Record the user's verified manual DevTools observations and update the project design without implementing code or contacting the modem.
+
+**OBSERVED — manual DevTools evidence:**
+
+- The Network Log request is `POST /xml/getter.xml` with form field `fun=13`; the XML root is `eventlog_table`.
+- The response contains 20 `eventlog` and 2 `wifieventlog` elements. Each has `prior`, `text`, `time`, and `t` fields.
+- Two successive responses were exactly identical in entry values and order. This is a two-observation stability result only.
+- `t` is consistent with Unix epoch seconds and `time` with local UTC+2 on 2026-10-20. These representations and stability were observed only in those two responses; uniqueness and future stability are not established.
+- The two categories are distinct. Entries ascend within each category, but the combined XML order is not globally chronological. A T3 timeout has native `critical` priority.
+
+**UNKNOWN:** Pagination, retention, whether 20 is a row cap, completeness, timestamp collisions, and reboot behavior remain unverified. No raw pasted XML, SID/sessionToken, sensitive address, or MAC value is retained in this report.
+
+**PROPOSED design:** Retrieval remains optional and default-off, using the existing authenticated CH7465 driver session in the existing poll. Isolate retrieval/parse/storage failures from core polling. Begin any future validation offline with sanitized fixtures only. Preserve the raw event fields and add a UTC ingestion timestamp. For persistent deduplication, scope identity by device and category, fingerprint all raw fields, and account for identical-row multiplicity within a response; treat collisions and reboot behavior as unresolved, never as proof that `t` alone is unique. Keep notifications and Smart Capture out of scope.
+
+**Changes:** Updated `docs/ARCHITECTURE.md` and appended this record. No application code, tests, modem access, or Git state changes were made.
+
+**Tests:** None run, as requested; this was a documentation-only update.
+
+**Next steps:** Review the design specification. Any implementation or live modem retrieval requires a later, explicit task and appropriate authorization.
+
+## Step 4.11 — Offline regression coverage and documentation status
+
+**Report date:** 2026-10-20
+
+**Objective:** Complete synthetic, offline test coverage for the Step 4.9 CH7465ONE native-log implementation and accurately document its implementation and verification status. No live modem access or Git state changes were authorized or performed.
+
+**Inspected baseline:** Step 4.9 application implementation and initial parser/storage tests were present in the checkout. The working tree already contained uncommitted application, test, and documentation changes; those were preserved. This report does not claim that those existing changes were created or verified in this step.
+
+**Changes in this step:** Extended `tests/test_ch7465_native_events.py` with migration and generic-event acknowledgment preservation, backup/restore persistence and deduplication, forced fingerprint-collision detection, authenticated API access and page traversal, an explicit authentication-required case when global auth is unset, and expanded SID/sessionToken/password redaction assertions. The API test checks 200-row pagination and the current endpoint's rejection of `limit=999`; the storage cap itself is also covered by the pre-existing storage test. Updated `docs/ARCHITECTURE.md` to describe the inspected implementation as present but not fully pytest-verified, while retaining the unknown modem completeness/retention semantics and the earlier proposal rationale.
+
+**CI investigation:** The existing GitHub Actions `test.yml` configures Python 3.13 and installs both `requirements.txt` and `requirements-test.txt` with `pip install --require-hashes`, then invokes pytest. This is sufficient CI configuration for running the regression suite when the workflow is triggered. CI was not triggered or modified. Whether package-index access and the locked artifacts are available in a future run is not established here.
+
+**Checks and results:** Python 3.13.5 compilation of the changed test module succeeded. `git diff --check` succeeded. Pytest was not run: neither the system Python nor the existing repository `.venv` contains pytest. No packages were installed and no dependency environment was modified. The migration/API/collision/backup/redaction assertions therefore remain unverified by execution. No concrete application behavior defect was established by this test/documentation task; no application code was changed.
+
+**Next step:** Run the focused and full pytest suites in the existing Python 3.13 CI environment or an environment with the locked dependencies already available, then review the resulting evidence. This report stops for review.
+
+## Step 4.14 — Built-in CH7465 driver resilience and archive/restore coverage
+
+**Report date:** 2026-10-20
+
+**Objective:** Implement the approved Option A built-in CH7465 native Network Log architecture with safe fallback to the standard CH7465 driver, add focused synthetic regression coverage, and exercise DOCSight's production backup/restore functions without touching user data or the modem.
+
+**Verified registration path:** `ch7465` is discovered as a built-in module; its manifest contributes an exact-key `ch7465` driver; the application registration plan installs that driver into the per-app registry; configured modem type `ch7465` resolves the module driver ahead of the standard registry entry. The extension inherits the standard authentication and DOCSIS methods. Built-in module provenance is now carried into the driver registry.
+
+**Changes:** The optional CH7465 driver contribution now degrades to the standard driver when its import or class validation fails, while built-in manifest validation remains strict. Constructor failure for this built-in extension falls back to the registered standard CH7465 driver. Community override precedence and classification remain unchanged. Static manifest contracts now recognize the CH7465 built-in driver. Regression coverage exercises built-in resolution, invalid/missing optional contribution fallback, constructor fallback, community classification, feature-off polling, retrieval failure isolation, session reuse, and production archive/restore persistence of original fields, categories, endpoint identity salt, and deduplication. Updated stale community-module wording and architecture documentation to record the selected built-in design.
+
+**Checks and results:** `git diff --check` passed. Python AST parsing passed for all 18 changed Python files. The CH7465 built-in manifest contract validation passed. Offline smoke checks passed for normal module discovery and extended-driver selection, missing and incompatible contribution fallback, constructor failure fallback, default-off DOCSIS polling, retrieval-failure isolation, session reuse with the expected variant request data, and production archive/restore persistence including identity salt and repeated-snapshot deduplication. These smoke checks are not pytest. Pytest was unavailable in both `/usr/bin/python3` and the repository `.venv` (`No module named pytest`); no dependencies were installed. No live modem access, Git state operation, or GitHub Actions run was performed.
+
+**Unresolved:** Live modem/firmware compatibility, native-log completeness, pagination, retention, and timestamp/identity behavior remain unverified. Built-in manifest validation intentionally remains fatal if the manifest itself is missing or invalid; only the optional driver contribution is tolerant.

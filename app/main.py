@@ -345,6 +345,7 @@ def polling_loop(config_mgr, storage, stop_event, runtime: DocsightRuntime):
                         poll_interval=config_mgr.get("poll_interval", 900),
                         notifier=notifier,
                         smart_capture=smart_capture,
+                        native_events_enabled=config_mgr.get("ch7465_network_log_enabled", False),
                     )
                     collectors = [
                         new_modem if c is modem_collector else c

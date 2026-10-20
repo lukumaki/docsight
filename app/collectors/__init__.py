@@ -108,6 +108,7 @@ def discover_collectors(config_mgr, storage, event_detector, mqtt_pub, web, anal
             poll_interval=config["poll_interval"],
             notifier=notifier,
             smart_capture=smart_capture,
+            native_events_enabled=config.get("ch7465_network_log_enabled", False),
         ))
 
         # Segment utilization collector (FritzBox only)

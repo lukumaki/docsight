@@ -68,6 +68,40 @@ class TestModemCollector:
         event_detector.check.assert_called_once()
         assert web.update_state.call_count >= 3  # device_info, connection_info, analysis
 
+    def test_native_log_hook_is_absent_from_default_off_poll(self):
+        c, driver, *_ = self._make_collector()
+        driver.get_native_events.return_value = []
+        result = c.collect()
+        assert result.success is True
+        driver.get_native_events.assert_not_called()
+        driver.get_docsis_data.assert_called_once()
+
+    def test_enabled_native_log_hook_uses_same_driver_and_is_failure_isolated(self):
+        c, driver, _analyzer, _detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver._url = "http://synthetic-router.local"
+        driver.get_native_events.return_value = [{"category": "eventlog"}]
+        c.collect()
+        driver.login.assert_called_once()
+        driver.get_native_events.assert_called_once()
+        storage.save_native_events.assert_called_once_with(driver._url, [{"category": "eventlog"}])
+        storage.save_native_events.side_effect = RuntimeError("secret payload must not escape")
+        assert c.collect().success is True
+
+    def test_native_log_method_failure_does_not_interrupt_docsis_poll(self):
+        c, driver, analyzer_fn, event_detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver._url = "http://synthetic-router.local"
+        driver.get_native_events.side_effect = RuntimeError("synthetic retrieval failure")
+
+        result = c.collect()
+
+        assert result.success is True
+        driver.get_docsis_data.assert_called_once()
+        analyzer_fn.assert_called_once()
+        storage.save_snapshot.assert_called_once()
+        event_detector.check.assert_called_once()
+
     def test_collect_refreshes_device_info_caches_connection_info(self):
         c, driver, *_ = self._make_collector()
         c.collect()

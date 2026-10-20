@@ -115,6 +115,31 @@ def api_events_list():
     return jsonify({"events": events, "unacknowledged_count": unack})
 
 
+@events_bp.route("/api/modem-native-events", methods=["GET"])
+@require_auth
+def api_modem_native_events():
+    """Bounded authenticated read-only view of native modem log rows."""
+    runtime = current_runtime()
+    # require_auth follows DOCSight's optional admin-password mode. Native modem
+    # text may be sensitive, so this endpoint always requires configured auth.
+    if not runtime.config_manager.get("admin_password", ""):
+        return jsonify({"error": "Administrator authentication is required"}), 401
+    storage = runtime.storage
+    if not storage:
+        return jsonify({"events": [], "next_before_id": None})
+    try:
+        limit = int(request.args.get("limit", "100"))
+        before_id = int(request.args["before_id"]) if "before_id" in request.args else None
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid pagination parameters"}), 400
+    if limit < 1 or limit > 200 or (before_id is not None and before_id < 1):
+        return jsonify({"error": "Invalid pagination parameters"}), 400
+    endpoint = runtime.config_manager.get("modem_url", "")
+    rows = storage.get_native_events(endpoint, limit=limit, before_id=before_id)
+    next_before_id = rows[-1]["id"] if len(rows) == limit else None
+    return jsonify({"events": rows, "next_before_id": next_before_id})
+
+
 @events_bp.route("/api/events/export.csv", methods=["GET"])
 @require_auth
 def api_events_export_csv():

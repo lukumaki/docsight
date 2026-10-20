@@ -427,9 +427,27 @@ def resolve_module_contribution(
         missing_kind = sorted(declared_templates - set(template_paths))[0]
         raise ManifestError(f"{missing_kind} template contribution file not found")
     if "driver" in contributes:
-        driver_class = _redacted_resolution(
-            "driver", lambda: load_module_driver(mod.id, mod.path, contributes["driver"])
-        )
+        try:
+            resolved_driver = _redacted_resolution(
+                "driver", lambda: load_module_driver(mod.id, mod.path, contributes["driver"])
+            )
+            if mod.builtin and mod.id == "ch7465":
+                from .drivers.ch7465 import CH7465Driver
+
+                if (
+                    not issubclass(resolved_driver, CH7465Driver)
+                    or not callable(getattr(resolved_driver, "get_native_events", None))
+                ):
+                    raise ManifestError("optional CH7465 native-log driver is incompatible")
+            driver_class = resolved_driver
+        except ManifestError:
+            # This first-party extension adds only optional native-log retrieval;
+            # the standard built-in CH7465 driver remains registered underneath.
+            if mod.builtin and mod.id == "ch7465":
+                log.warning("Built-in CH7465 native-log driver unavailable; using standard driver")
+                driver_class = None
+            else:
+                raise
     if "collector" in contributes and not mod.builtin:
         collector_class = _redacted_resolution(
             "collector",
