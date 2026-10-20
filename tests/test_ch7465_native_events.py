@@ -26,10 +26,76 @@ def test_parser_preserves_categories_priority_fields_and_duplicate_rows():
     assert rows[2]["category"] == "wifieventlog"
 
 
-@pytest.mark.parametrize("payload", [b"<wrong/>", b"<eventlog_table>", b"<!DOCTYPE x><eventlog_table/>"])
-def test_parser_rejects_wrong_malformed_or_entity_xml(payload):
+@pytest.mark.parametrize("payload", [b"<wrong/>", b"<eventlog_table>"])
+def test_parser_rejects_wrong_or_malformed_xml(payload):
     with pytest.raises(ValueError):
         parse_network_log(payload)
+
+
+def _xml_encoded(text, encoding):
+    if encoding == "utf-8":
+        return text.encode("utf-8")
+    bom = b"\xff\xfe" if encoding == "utf-16-le" else b"\xfe\xff"
+    return bom + text.encode(encoding)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le", "utf-16-be"])
+def test_parser_rejects_doctype_in_supported_encodings(encoding):
+    payload = _xml_encoded("<!DOCTYPE eventlog_table><eventlog_table/>", encoding)
+    with pytest.raises(ValueError, match="XML declaration"):
+        parse_network_log(payload)
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        '<!DOCTYPE eventlog_table [<!ENTITY custom "synthetic">]>',
+        '<!DOCTYPE eventlog_table [<!ENTITY custom SYSTEM "file:///synthetic-only">]>',
+        '<!DOCTYPE eventlog_table [<!ENTITY custom SYSTEM "https://example.invalid/synthetic">]>',
+    ],
+)
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le", "utf-16-be"])
+def test_parser_rejects_internal_and_external_entity_declarations(declaration, encoding):
+    payload = _xml_encoded(
+        f"{declaration}<eventlog_table><eventlog><text>&custom;</text></eventlog></eventlog_table>",
+        encoding,
+    )
+    with pytest.raises(ValueError, match="XML declaration"):
+        parse_network_log(payload)
+
+
+def test_parser_rejects_undeclared_custom_entity_reference():
+    with pytest.raises(ValueError, match="Malformed"):
+        parse_network_log(
+            b"<eventlog_table><eventlog><text>&custom;</text></eventlog></eventlog_table>"
+        )
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16-le", "utf-16-be"])
+def test_parser_preserves_event_fields_and_predefined_entities(encoding):
+    payload = _xml_encoded(
+        "<eventlog_table>"
+        "<eventlog><prior>critical</prior><text>Synthetic &amp; cable</text><time>opaque-time</time><t>opaque-t</t></eventlog>"
+        "<wifieventlog><prior>notice</prior><text>Synthetic Wi-Fi</text><time>opaque-wifi-time</time><t>opaque-wifi-t</t></wifieventlog>"
+        "</eventlog_table>",
+        encoding,
+    )
+    assert parse_network_log(payload) == [
+        {
+            "category": "eventlog",
+            "prior": "critical",
+            "text": "Synthetic & cable",
+            "time": "opaque-time",
+            "t": "opaque-t",
+        },
+        {
+            "category": "wifieventlog",
+            "prior": "notice",
+            "text": "Synthetic Wi-Fi",
+            "time": "opaque-wifi-time",
+            "t": "opaque-wifi-t",
+        },
+    ]
 
 
 def test_parser_enforces_xml_size_limit():

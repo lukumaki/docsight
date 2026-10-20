@@ -209,3 +209,21 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved:** The corrected branch has not yet been rerun in CI. Live firmware compatibility, log completeness, pagination, retention, and modem timestamp interpretation remain unverified.
 
 **Next step:** Complete local static checks, review the diff, then await approval before any staging, commit, push, or CI rerun.
+
+## Step 4.27 — XML parser security hardening
+
+**Report date:** 2026-10-20
+
+**Objective:** Reject DTD and custom-entity XML declarations independent of UTF-8/UTF-16 encoding, while preserving legitimate CH7465 event parsing. This was an offline-only change; the modem and Git state were not accessed or modified.
+
+**Root cause:** The previous check searched raw bytes for ASCII `<!DOCTYPE` and `<!ENTITY`. UTF-16 interleaves zero bytes, so those byte patterns did not match even though the XML parser accepted the declaration and expanded an internal entity.
+
+**Changes:** `app/modules/ch7465/parser.py` now validates the bounded XML payload with Python's standard-library Expat parser before ElementTree builds the rows. Expat declaration callbacks reject DTDs, entity declarations, and external-entity callbacks; parameter-entity parsing is disabled. This recognizes XML encodings rather than depending on byte substrings. The existing 1 MiB limit, root/field behavior, and native text preservation remain. Synthetic parser regression cases cover DTD declarations in UTF-8 and UTF-16 LE/BE, internal and external entities, an undeclared entity reference, malformed/unexpected XML, predefined `&amp;`, both event categories, and exact raw field values.
+
+**Tests and checks:** The installed Python is 3.13.5. Pytest and `defusedxml` are unavailable, and no dependencies were installed; therefore the pytest suite was not run. Standard-library direct parser checks, AST syntax checks, and `git diff --check` were run for this change; results are reported with this phase's completion response. No live modem test or CI run was performed.
+
+**Local data permissions review:** Source inspection found no explicit restrictive mode for the SQLite database or its containing data directory; actual protection depends on the process umask and directory permissions. Config and key files are explicitly set to owner read/write. Backup archives and restore staging files use `mkstemp`'s owner-only mode, but the backup/data directories do not receive explicit permission enforcement. No actual database or backup contents or filesystem modes were inspected. This is a separate confirmed source-level hardening gap and was not changed in this parser-focused checkpoint.
+
+**Unresolved risks:** Live firmware compatibility, native-log completeness/pagination, and timestamp semantics remain unverified. The test suite and CI have not exercised the new code yet. Existing database and directory permissions depend on deployment context.
+
+**Next step:** Review the local diff and direct security checks, then obtain approval before staging, committing, pushing, or triggering CI.
