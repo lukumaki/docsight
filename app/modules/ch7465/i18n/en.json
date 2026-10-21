@@ -1,0 +1,20 @@
+{
+  "title": "Native Network Log",
+  "older": "Older events",
+  "stored_only": "Stored CH7465 events only. Refresh reads the database; it does not query the modem. Newest stored events appear first.",
+  "raw_time": "Modem-reported time is shown exactly as stored. Its timezone is unverified; no timezone conversion is applied.",
+  "disabled": "CH7465 native-log collection is disabled. Previously stored events remain available.",
+  "auth_required": "Configure an administrator password and sign in to view native events.",
+  "time": "Modem-reported time",
+  "priority": "Priority",
+  "description": "Full event description",
+  "category": "Category",
+  "system": "System",
+  "wifi": "Wi-Fi",
+  "loading": "Loading stored events…",
+  "loaded": "Showing {count} stored events.",
+  "empty": "No stored native events for the configured modem.",
+  "no_older": "No older stored events. Refresh to return to the newest events.",
+  "error": "Could not load stored native events. Try Refresh again.",
+  "session_required": "Authentication is required. Sign in again to view native events."
+}

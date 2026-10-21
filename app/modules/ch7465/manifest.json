@@ -6,6 +6,12 @@
   "author": "DOCSight",
   "minAppVersion": "2026.2",
   "type": "driver",
-  "contributes": {"driver": "driver.py:CH7465NativeLogDriver"},
+  "contributes": {
+    "driver": "driver.py:CH7465NativeLogDriver",
+    "tab": "templates/native_network_log_tab.html",
+    "static": "static/",
+    "i18n": "i18n/"
+  },
+  "menu": {"label_key": "ch7465.title", "icon": "history", "order": 25},
   "hints": {"default_url": "http://192.168.100.1", "default_user": "admin"}
 }
