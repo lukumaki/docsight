@@ -497,13 +497,14 @@ class TestPollingLoopOrchestrator:
         storage.save_bqm_graph.assert_not_called()
 
     @patch("app.drivers.driver_registry.load_driver")
-    def test_orchestrator_handles_collector_exception(self, mock_load, mock_runtime):
+    def test_orchestrator_handles_collector_exception(self, mock_load, mock_runtime, caplog):
         """Orchestrator should catch exceptions and continue running."""
         import threading
         from app.main import polling_loop
 
         mock_driver = MagicMock()
-        mock_driver.login.side_effect = RuntimeError("Modem offline")
+        failure_detail = "SYNTHETIC_MODEM_FAILURE_DETAIL_MARKER"
+        mock_driver.login.side_effect = RuntimeError(failure_detail)
         mock_load.return_value = mock_driver
 
         config_mgr = self._make_config_mgr()
@@ -524,9 +525,49 @@ class TestPollingLoopOrchestrator:
 
         mock_runtime.derived_storage.value.return_value = 0
 
-        polling_loop(config_mgr, storage, stop, mock_runtime)
+        with caplog.at_level("INFO", logger="docsis.main"):
+            polling_loop(config_mgr, storage, stop, mock_runtime)
 
         mock_runtime.update_state.assert_any_call(error=mock_driver.login.side_effect)
+        assert failure_detail not in caplog.text
+        assert "RuntimeError" in caplog.text
+
+    @patch("app.main.discover_collectors")
+    def test_failed_modem_result_does_not_log_error_details(
+        self, mock_discover, mock_runtime, caplog
+    ):
+        from app.main import polling_loop
+
+        failure_detail = "SYNTHETIC_MODEM_RESULT_DETAIL_MARKER"
+
+        class FailedModemCollector(Collector):
+            name = "modem"
+
+            def __init__(self):
+                super().__init__(poll_interval_seconds=60)
+
+            def collect(self):
+                return CollectorResult(
+                    source=self.name, success=False, error=failure_detail
+                )
+
+            def record_failure(self):
+                super().record_failure()
+                stop.set()
+
+        mock_discover.return_value = [FailedModemCollector()]
+        config_mgr = self._make_config_mgr()
+        storage = self._make_storage()
+        stop = threading.Event()
+        original_wait = stop.wait
+        stop.wait = lambda timeout=None: original_wait(0.01)
+        mock_runtime.derived_storage.value.return_value = 0
+
+        with caplog.at_level("INFO", logger="docsis.main"):
+            polling_loop(config_mgr, storage, stop, mock_runtime)
+
+        assert failure_detail not in caplog.text
+        assert "modem poll failed (str)" in caplog.text
 
     @patch("app.drivers.driver_registry.load_driver")
     def test_orchestrator_stops_on_event(self, mock_load, mock_runtime):
@@ -545,6 +586,36 @@ class TestPollingLoopOrchestrator:
 
         polling_loop(config_mgr, storage, stop, mock_runtime)
         # If we get here without hanging, the test passes
+
+    @patch("app.drivers.driver_registry.load_driver")
+    def test_polling_startup_does_not_log_modem_configuration(
+        self, mock_load, mock_runtime, caplog
+    ):
+        from app.main import polling_loop
+
+        mock_load.return_value = MagicMock()
+        config_mgr = self._make_config_mgr()
+        config_mgr.get_all.return_value.update({
+            "modem_url": "http://synthetic-modem-url.invalid/path-marker",
+            "modem_user": "synthetic-modem-user-marker",
+            "modem_password": "synthetic-modem-password-marker",
+        })
+        storage = self._make_storage()
+        stop = threading.Event()
+        stop.set()
+        mock_runtime.derived_storage.value.return_value = 0
+
+        with caplog.at_level("INFO", logger="docsis.main"):
+            polling_loop(config_mgr, storage, stop, mock_runtime)
+
+        for marker in (
+            "synthetic-modem-url.invalid",
+            "synthetic-modem-user-marker",
+            "synthetic-modem-password-marker",
+        ):
+            assert marker not in caplog.text
+        assert "Modem connection settings loaded" in caplog.text
+        assert "Poll interval: 60s" in caplog.text
 
     @patch("app.drivers.driver_registry.load_driver")
     def test_driver_hot_swap_on_modem_type_change(self, mock_load, mock_runtime):

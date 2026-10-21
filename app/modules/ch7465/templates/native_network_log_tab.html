@@ -1,0 +1,32 @@
+<section class="native-network-log" id="native-network-log" data-auth-enabled="{{ 'true' if auth_enabled else 'false' }}" aria-labelledby="native-log-title">
+    <div class="view-page-header">
+        <div class="view-page-header-left">
+            <h2 class="view-page-title" id="native-log-title">{{ t.get('ch7465.title', 'Native Network Log') }}</h2>
+        </div>
+        <div class="view-page-actions">
+            <button type="button" class="btn btn-secondary" id="native-log-refresh"{% if not auth_enabled %} disabled{% endif %}>{{ t.get('refresh', 'Refresh') }}</button>
+            <button type="button" class="btn btn-secondary" id="native-log-older" disabled>{{ t.get('ch7465.older', 'Older events') }}</button>
+        </div>
+    </div>
+    <p class="form-hint">{{ t.get('ch7465.stored_only', 'Stored CH7465 events only. Refresh reads the database; it does not query the modem. Newest stored events appear first.') }}</p>
+    <p class="form-hint">{{ t.get('ch7465.raw_time', 'Modem-reported time is shown exactly as stored. Its timezone is unverified; no timezone conversion is applied.') }}</p>
+    {% if not native_log_collection_enabled %}
+    <p class="form-hint" id="native-log-disabled">{{ t.get('ch7465.native_log_disabled', 'CH7465 native-log collection is disabled. Previously stored events remain available.') }}</p>
+    {% endif %}
+    {% if not auth_enabled %}
+    <p role="alert" id="native-log-auth-required">{{ t.get('ch7465.auth_required', 'Configure an administrator password and sign in to view native events.') }}</p>
+    {% endif %}
+    <p id="native-log-status" role="status" aria-live="polite"></p>
+    <p id="native-log-error" role="alert" hidden></p>
+    <div class="table-card data-table-wrap" id="native-log-table-wrap" hidden>
+        <table class="data-table" aria-labelledby="native-log-title">
+            <thead><tr>
+                <th scope="col">{{ t.get('ch7465.time', 'Modem-reported time') }}</th>
+                <th scope="col">{{ t.get('ch7465.priority', 'Priority') }}</th>
+                <th scope="col">{{ t.get('ch7465.description', 'Full event description') }}</th>
+                <th scope="col">{{ t.get('ch7465.category', 'Category') }}</th>
+            </tr></thead>
+            <tbody id="native-log-rows"></tbody>
+        </table>
+    </div>
+</section>

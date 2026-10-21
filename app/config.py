@@ -103,6 +103,7 @@ DEFAULTS = {
     "demo_mode": False,
     "gaming_quality_enabled": True,
     "segment_utilization_enabled": True,
+    "ch7465_network_log_enabled": False,
     "speedtest_tls_insecure": False,
     "booked_download": 0,
     "booked_upload": 0,
@@ -164,6 +165,7 @@ ENV_MAP = {
     "web_port": "WEB_PORT",
     "public_url": "PUBLIC_URL",
     "history_days": "HISTORY_DAYS",
+    "ch7465_network_log_enabled": "CH7465_NETWORK_LOG_ENABLED",
     "data_dir": "DATA_DIR",
     "admin_password": "ADMIN_PASSWORD",
     "metrics_require_token": "METRICS_REQUIRE_TOKEN",
@@ -241,6 +243,7 @@ INT_KEYS = {"poll_interval", "web_port", "history_days", "booked_download", "boo
             "sc_trigger_error_spike_min_delta"}
 BOOL_KEYS = {"demo_mode", "update_check_enabled", "gaming_quality_enabled", "segment_utilization_enabled", "notify_apprise_enabled",
              "notify_pwa_push_enabled", "metrics_require_token",
+             "ch7465_network_log_enabled",
              "speedtest_tls_insecure", "sc_enabled", "sc_trigger_modulation", "sc_trigger_snr",
              "sc_trigger_error_spike", "sc_trigger_health", "sc_trigger_packet_loss"}
 

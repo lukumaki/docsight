@@ -35,6 +35,109 @@ def test_builtin_registry_matches_tracked_manifest_dirs():
     assert not any(path.parent.name.startswith("theme_") for path in BUILTIN_MODULES_DIR.glob("*/manifest.json"))
 
 
+def test_ch7465_builtin_module_registers_extended_driver():
+    from app.app_factory import default_module_loader_factory
+    from app.drivers import driver_registry as pristine_registry
+    from app.modules.ch7465.driver import CH7465NativeLogDriver
+
+    class Config:
+        def get(self, key, default=None):
+            return default
+
+    app = Flask("ch7465-registration-test")
+    default_module_loader_factory(
+        Config(), builtin_base_path=str(BUILTIN_MODULES_DIR)
+    )(app)
+    registry = app.extensions["docsight_driver_registry"]
+    driver = registry.load_driver(
+        "ch7465", "http://synthetic-router.local", "synthetic-user", "synthetic-password"
+    )
+
+    assert isinstance(driver, CH7465NativeLogDriver)
+    assert registry.is_builtin("ch7465")
+    assert registry is not pristine_registry
+    assert dict(registry.get_available_drivers())["ch7465"] == dict(
+        pristine_registry.get_available_drivers()
+    )["ch7465"]
+    assert registry.get_driver_hints()["ch7465"] == pristine_registry.get_driver_hints()["ch7465"]
+    driver._finalizer.detach()
+    driver._session.close()
+
+
+@pytest.mark.parametrize("failure", ["missing", "invalid"])
+def test_ch7465_optional_driver_contribution_failure_keeps_standard_driver(
+    monkeypatch, failure,
+):
+    from app.app_factory import default_module_loader_factory
+    from app.drivers.ch7465 import CH7465Driver
+    from app.module_loader import ManifestError
+    import app.module_contributions as module_contributions
+
+    original_loader = module_contributions.load_module_driver
+
+    class Config:
+        def get(self, key, default=None):
+            return default
+
+    def fail_optional_driver(module_id, module_path, spec, *, builtin=False):
+        assert builtin is True
+        if module_id == "ch7465":
+            if failure == "missing":
+                raise ManifestError("driver contribution file not found")
+            return CH7465Driver  # Valid DOCSIS driver class, but not the native-log extension.
+        return original_loader(module_id, module_path, spec, builtin=builtin)
+
+    monkeypatch.setattr(module_contributions, "load_module_driver", fail_optional_driver)
+    app = Flask("ch7465-contribution-fallback-test")
+    default_module_loader_factory(
+        Config(), builtin_base_path=str(BUILTIN_MODULES_DIR)
+    )(app)
+    driver = app.extensions["docsight_driver_registry"].load_driver(
+        "ch7465", "http://synthetic-router.local", "synthetic-user", "synthetic-password"
+    )
+
+    assert type(driver) is CH7465Driver
+    assert app.extensions["docsight_driver_registry"].is_builtin("ch7465")
+    driver._finalizer.detach()
+    driver._session.close()
+
+
+def test_ch7465_extension_constructor_failure_falls_back_to_standard_driver():
+    from app.drivers.ch7465 import CH7465Driver
+    from app.drivers.registry import DriverRegistry
+
+    class BrokenExtension(CH7465Driver):
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("synthetic extension constructor failure")
+
+    registry = DriverRegistry()
+    registry.register_builtin(
+        "ch7465", "app.drivers.ch7465.CH7465Driver", "Compal CH7465"
+    )
+    registry.register_module_driver(
+        "ch7465", BrokenExtension, "Compal CH7465", builtin_module=True,
+        fallback_to_builtin=True,
+    )
+
+    assert type(registry.load_driver(
+        "ch7465", "http://synthetic-router.local", "synthetic-user", "synthetic-password"
+    )) is CH7465Driver
+    assert registry.is_builtin("ch7465")
+
+
+def test_community_override_classification_is_unchanged():
+    from app.drivers.ch7465 import CH7465Driver
+    from app.drivers.registry import DriverRegistry
+
+    registry = DriverRegistry()
+    registry.register_builtin(
+        "ch7465", "app.drivers.ch7465.CH7465Driver", "Compal CH7465"
+    )
+    registry.register_module_driver("ch7465", CH7465Driver, "Community override")
+
+    assert registry.is_builtin("ch7465") is False
+
+
 def test_builtin_theme_registry_replaces_wrapper_module_dirs():
     """Shipped themes live in the theme registry, not per-theme manifests."""
     assert len(BUILTIN_THEMES) == 15

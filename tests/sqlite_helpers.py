@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 
@@ -47,7 +48,7 @@ def install_counting_connect(monkeypatch, sqlite_module):
 
 def schema_digest(db_path: str | Path) -> str:
     """Hash normalized user-visible schema SQL."""
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as conn, conn:
         rows = conn.execute(
             "SELECT type, name, tbl_name, sql FROM sqlite_master "
             "WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name"
@@ -62,7 +63,7 @@ def schema_digest(db_path: str | Path) -> str:
 def data_digest(db_path: str | Path, *, exclude: set[str] | None = None) -> tuple[dict[str, int], str]:
     """Return per-table counts and a stable hash over ordered row tuples."""
     excluded = {"sqlite_sequence", "_docsight_migrations", *(exclude or set())}
-    with sqlite3.connect(str(db_path)) as conn:
+    with closing(sqlite3.connect(str(db_path))) as conn, conn:
         tables = [
             row[0]
             for row in conn.execute(

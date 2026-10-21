@@ -68,6 +68,173 @@ class TestModemCollector:
         event_detector.check.assert_called_once()
         assert web.update_state.call_count >= 3  # device_info, connection_info, analysis
 
+    def test_native_log_hook_is_absent_from_default_off_poll(self):
+        c, driver, *_ = self._make_collector()
+        driver.get_native_events.return_value = []
+        result = c.collect()
+        assert result.success is True
+        driver.get_native_events.assert_not_called()
+        driver.get_docsis_data.assert_called_once()
+
+    def test_enabled_native_log_hook_reports_aggregate_counts_and_is_failure_isolated(
+        self, caplog
+    ):
+        c, driver, _analyzer, _detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver._url = "http://synthetic-router.local"
+        rows = [
+            {
+                "category": "eventlog",
+                "prior": "notice",
+                "text": "PRIVATE_EVENT_TEXT_SENTINEL",
+                "time": "PRIVATE_TIME_SENTINEL",
+                "t": "PRIVATE_T_SENTINEL",
+            },
+            {
+                "category": "eventlog", "prior": "critical", "text": "synthetic",
+                "time": "t1", "t": "1",
+            },
+            {
+                "category": "wifieventlog", "prior": "warning", "text": "synthetic",
+                "time": "t2", "t": "2",
+            },
+        ]
+        driver.get_native_events.return_value = rows
+        storage.save_native_events.return_value = 2
+        with caplog.at_level("INFO", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+        driver.login.assert_called_once()
+        driver.get_native_events.assert_called_once()
+        storage.save_native_events.assert_called_once_with(driver._url, rows)
+        assert (
+            "outcome=success returned_system=2 returned_wifi=1 inserted=2 duplicates=1"
+            in caplog.text
+        )
+        for marker in (
+            "PRIVATE_EVENT_TEXT_SENTINEL", "PRIVATE_TIME_SENTINEL", "PRIVATE_T_SENTINEL",
+            "synthetic-router.local",
+        ):
+            assert marker not in caplog.text
+
+        caplog.clear()
+        storage.save_native_events.side_effect = RuntimeError(
+            "secret payload must not escape"
+        )
+        with caplog.at_level("WARNING", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+        assert "outcome=storage_failed" in caplog.text
+        assert "secret payload must not escape" not in caplog.text
+        assert "outcome=success" not in caplog.text
+
+    def test_empty_native_log_is_distinguished_from_retrieval_failure(self, caplog):
+        c, driver, _analyzer, _detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver._url = "http://synthetic-router.local"
+        driver.get_native_events.return_value = []
+        storage.save_native_events.return_value = 0
+
+        with caplog.at_level("INFO", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+        assert (
+            "outcome=empty returned_system=0 returned_wifi=0 inserted=0 duplicates=0"
+            in caplog.text
+        )
+
+        caplog.clear()
+        driver.get_native_events.side_effect = RuntimeError(
+            "PRIVATE_FAILURE_DETAIL_SENTINEL"
+        )
+        with caplog.at_level("WARNING", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+        assert "outcome=retrieval_failed" in caplog.text
+        assert "outcome=empty" not in caplog.text
+        assert "PRIVATE_FAILURE_DETAIL_SENTINEL" not in caplog.text
+        assert "returned_system=unknown" in caplog.text
+        assert "inserted=unknown" in caplog.text
+        driver.get_docsis_data.assert_called()
+        storage.save_snapshot.assert_called()
+
+        caplog.clear()
+        driver.get_native_events = None
+        with caplog.at_level("WARNING", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+        assert "outcome=unsupported" in caplog.text
+        assert "outcome=success" not in caplog.text
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            ({"category": "eventlog"},),
+            [{"category": "eventlog", "text": "PRIVATE_MALFORMED_SENTINEL"}],
+            [{
+                "category": "private-category", "prior": "notice",
+                "text": "PRIVATE_CATEGORY_SENTINEL", "time": "t", "t": "1",
+            }],
+            [{
+                "category": ["eventlog"], "prior": "notice",
+                "text": "PRIVATE_UNHASHABLE_CATEGORY_SENTINEL", "time": "t", "t": "1",
+            }],
+        ],
+    )
+    def test_invalid_native_response_is_classified_before_storage(
+        self, response, caplog
+    ):
+        c, driver, _analyzer, _detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver.get_native_events.return_value = response
+
+        with caplog.at_level("WARNING", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+
+        storage.save_native_events.assert_not_called()
+        assert "outcome=invalid_response" in caplog.text
+        assert "outcome=storage_failed" not in caplog.text
+        assert "inserted=unknown" in caplog.text
+        assert "duplicates=unknown" in caplog.text
+        assert "PRIVATE_MALFORMED_SENTINEL" not in caplog.text
+        assert "PRIVATE_CATEGORY_SENTINEL" not in caplog.text
+        assert "PRIVATE_UNHASHABLE_CATEGORY_SENTINEL" not in caplog.text
+        storage.save_snapshot.assert_called()
+
+    @pytest.mark.parametrize(
+        "result",
+        [None, "1", True, False, -1, 4],
+    )
+    def test_invalid_storage_insert_count_is_not_reported_as_success(
+        self, result, caplog
+    ):
+        c, driver, _analyzer, _detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver.get_native_events.return_value = [{
+            "category": "eventlog", "prior": "notice",
+            "text": "PRIVATE_STORAGE_SENTINEL", "time": "opaque", "t": "1",
+        }]
+        storage.save_native_events.return_value = result
+
+        with caplog.at_level("WARNING", logger="docsis.collector.modem"):
+            assert c.collect().success is True
+
+        assert "outcome=storage_failed" in caplog.text
+        assert "outcome=success" not in caplog.text
+        assert "inserted=unknown" in caplog.text
+        assert "duplicates=unknown" in caplog.text
+        assert "PRIVATE_STORAGE_SENTINEL" not in caplog.text
+        storage.save_snapshot.assert_called()
+
+    def test_native_log_method_failure_does_not_interrupt_docsis_poll(self):
+        c, driver, analyzer_fn, event_detector, storage, _web = self._make_collector()
+        c._native_events_enabled = True
+        driver._url = "http://synthetic-router.local"
+        driver.get_native_events.side_effect = RuntimeError("synthetic retrieval failure")
+
+        result = c.collect()
+
+        assert result.success is True
+        driver.get_docsis_data.assert_called_once()
+        analyzer_fn.assert_called_once()
+        storage.save_snapshot.assert_called_once()
+        event_detector.check.assert_called_once()
+
     def test_collect_refreshes_device_info_caches_connection_info(self):
         c, driver, *_ = self._make_collector()
         c.collect()

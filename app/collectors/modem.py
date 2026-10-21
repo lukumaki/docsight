@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Literal
 
 from .base import Collector, CollectorResult
 from ..analyzer import (
@@ -16,6 +18,52 @@ from ..gaming_index import compute_gaming_index
 from ..types import ConnectionInfo, DeviceInfo
 
 log = logging.getLogger("docsis.collector.modem")
+
+
+@dataclass(frozen=True)
+class NativeLogTelemetry:
+    """Aggregate-only outcome for one optional native-log attempt."""
+
+    outcome: Literal[
+        "success",
+        "empty",
+        "retrieval_failed",
+        "invalid_response",
+        "storage_failed",
+        "unsupported",
+    ]
+    returned_system: int | None = None
+    returned_wifi: int | None = None
+    inserted: int | None = None
+    duplicates: int | None = None
+
+    def emit(self) -> None:
+        values = (
+            self.outcome,
+            *(
+                "unknown" if value is None else value
+                for value in (
+                    self.returned_system,
+                    self.returned_wifi,
+                    self.inserted,
+                    self.duplicates,
+                )
+            ),
+        )
+        message = (
+            "Optional CH7465 native Network Log: outcome=%s "
+            "returned_system=%s returned_wifi=%s inserted=%s duplicates=%s"
+        )
+        if self.outcome in {
+            "retrieval_failed",
+            "invalid_response",
+            "storage_failed",
+            "unsupported",
+        }:
+            log.warning(message, *values)
+        else:
+            log.info(message, *values)
+
 
 def format_uptime(seconds: int) -> str:
     """Format uptime seconds into a human-readable string: Xd Yh Zm."""
@@ -37,7 +85,10 @@ class ModemCollector(Collector):
 
     name = "modem"
 
-    def __init__(self, driver, analyzer_fn, event_detector, storage, mqtt_pub, web, poll_interval, notifier=None, smart_capture=None):
+    def __init__(
+        self, driver, analyzer_fn, event_detector, storage, mqtt_pub, web,
+        poll_interval, notifier=None, smart_capture=None, native_events_enabled=False,
+    ):
         super().__init__(poll_interval)
         self._driver = driver
         self._analyzer = analyzer_fn
@@ -47,6 +98,7 @@ class ModemCollector(Collector):
         self._web = web
         self._notifier = notifier
         self._smart_capture = smart_capture
+        self._native_events_enabled = bool(native_events_enabled)
         self._device_info: DeviceInfo | None = None
         self._connection_info: ConnectionInfo | None = None
         self._discovery_published = False
@@ -181,6 +233,66 @@ class ModemCollector(Collector):
                 self._web.update_state(connection_info=self._connection_info)
 
         data = self._driver.get_docsis_data()
+        if self._native_events_enabled:
+            native_fetch = getattr(self._driver, "get_native_events", None)
+            if not callable(native_fetch):
+                NativeLogTelemetry("unsupported").emit()
+            else:
+                try:
+                    rows = native_fetch()
+                except Exception:
+                    # Never include exception text, request details, or modem data.
+                    NativeLogTelemetry("retrieval_failed").emit()
+                else:
+                    # The driver contract mirrors parse_network_log(): a list of
+                    # category-tagged rows with the four native fields as text.
+                    # Reject malformed results before invoking persistence.
+                    valid_rows = isinstance(rows, list) and all(
+                        isinstance(row, dict)
+                        and row.get("category") in ("eventlog", "wifieventlog")
+                        and all(
+                            isinstance(row.get(field), str)
+                            for field in ("prior", "text", "time", "t")
+                        )
+                        for row in rows
+                    )
+                    if not valid_rows:
+                        NativeLogTelemetry("invalid_response").emit()
+                    else:
+                        returned_system = sum(
+                            row["category"] == "eventlog" for row in rows
+                        )
+                        returned_wifi = sum(
+                            row["category"] == "wifieventlog" for row in rows
+                        )
+                        try:
+                            inserted = self._storage.save_native_events(
+                                self._driver._url, rows
+                            )
+                            if (
+                                type(inserted) is not int
+                                or inserted < 0
+                                or inserted > len(rows)
+                            ):
+                                raise ValueError("Invalid native event insertion count")
+                        except Exception:
+                            NativeLogTelemetry(
+                                "storage_failed",
+                                returned_system=returned_system,
+                                returned_wifi=returned_wifi,
+                            ).emit()
+                        else:
+                            # The storage method returns this transaction's insert
+                            # count; subtract from this response, never a DB total.
+                            duplicates = len(rows) - inserted
+                            outcome = "empty" if not rows else "success"
+                            NativeLogTelemetry(
+                                outcome,
+                                returned_system=returned_system,
+                                returned_wifi=returned_wifi,
+                                inserted=inserted,
+                                duplicates=duplicates,
+                            ).emit()
         previous_analysis = self._storage.get_latest_snapshot()
         last_spike_ts = self._storage.get_latest_spike_timestamp()
         analysis = self._analyzer(data)  # Call injected analyzer function

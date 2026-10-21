@@ -148,6 +148,20 @@ test('routing accepts optional hooks, repeated activation, deactivated views and
     assert.equal(elements['view-dashboard'].classList.contains('active'), true);
 });
 
+test('native network log deep links use the existing generic module hook', () => {
+    const {context, elements} = browser(
+        ['topnav', 'topnav-backdrop', 'theme-toggle-sidebar', 'view-dashboard', 'view-mod-ch7465'], '#mod-ch7465'
+    );
+    let calls = 0;
+    context.initModCh7465 = () => calls++;
+    run(context, 'app/static/js/topnav.js');
+    run(context, 'app/static/js/dashboard.js');
+    run(context, 'app/static/js/dashboard-routing.js');
+    assert.equal(calls, 1);
+    assert.equal(context.currentView, 'mod-ch7465');
+    assert.equal(elements['view-mod-ch7465'].classList.contains('active'), true);
+});
+
 test('BQM repeated activation retains one timer and fixed listeners, leaving cancels it', () => {
     const {context, timers, listenerCount} = browser(['view-bqm']);
     context.todayStr = () => '2026-09-05';

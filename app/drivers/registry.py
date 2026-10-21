@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from copy import deepcopy
 
 from .base import ModemDriver
 from ..types import DriverHints
+
+
+log = logging.getLogger("docsis.drivers")
 
 
 class UnavailableDriver(ModemDriver):
@@ -17,7 +21,7 @@ class UnavailableDriver(ModemDriver):
 
 
 class DriverRegistry:
-    """Built-in drivers and the community drivers accepted by one application."""
+    """Built-in drivers and module-provided overrides accepted by one application."""
 
     def __init__(self):
         self._builtin: dict[str, str] = {}
@@ -25,6 +29,8 @@ class DriverRegistry:
         self._display_names: dict[str, str] = {}
         self._hints: dict[str, DriverHints] = {}
         self._init_kwargs: dict[str, dict[str, object]] = {}
+        self._builtin_module_drivers: set[str] = set()
+        self._builtin_fallback_drivers: set[str] = set()
 
     def register_builtin(
         self,
@@ -51,18 +57,40 @@ class DriverRegistry:
 
     def register_module_driver(
         self, type_key: str, driver_class: type[ModemDriver],
-        display_name: str, hints: DriverHints | None = None,
+        display_name: str, hints: DriverHints | None = None, *,
+        builtin_module: bool = False, fallback_to_builtin: bool = False,
     ) -> None:
         if type_key in self._community:
             raise ValueError("Driver key is already registered")
         self._community[type_key] = driver_class
-        self._display_names[type_key] = display_name
-        if hints:
-            self._hints[type_key] = deepcopy(hints)
+        # A built-in extension may replace the implementation for an existing
+        # key while retaining that driver's established catalog metadata. This
+        # keeps display names, manufacturer grouping, and fallback metadata
+        # stable. Community overrides continue to own their supplied metadata.
+        if not (builtin_module and fallback_to_builtin and type_key in self._builtin):
+            self._display_names[type_key] = display_name
+            if hints:
+                self._hints[type_key] = deepcopy(hints)
+        if builtin_module:
+            self._builtin_module_drivers.add(type_key)
+        if fallback_to_builtin and type_key in self._builtin:
+            self._builtin_fallback_drivers.add(type_key)
 
     def load_driver(self, modem_type: str, url: str, user: str, password: str) -> ModemDriver:
         if modem_type in self._community:
-            return self._community[modem_type](url, user, password)
+            try:
+                return self._community[modem_type](url, user, password)
+            except Exception as exc:
+                if modem_type not in self._builtin_fallback_drivers:
+                    raise
+                log.warning(
+                    "Built-in optional driver failed to initialize; using standard driver (%s)",
+                    type(exc).__name__,
+                )
+                return self._load_builtin_driver(modem_type, url, user, password)
+        return self._load_builtin_driver(modem_type, url, user, password)
+
+    def _load_builtin_driver(self, modem_type: str, url: str, user: str, password: str):
         qualified = self._builtin.get(modem_type)
         if not qualified:
             supported = ", ".join(sorted(self.get_all_type_keys()))
@@ -123,7 +151,7 @@ class DriverRegistry:
         return (
             isinstance(modem_type, str)
             and modem_type in self._builtin
-            and modem_type not in self._community
+            and (modem_type not in self._community or modem_type in self._builtin_module_drivers)
         )
 
     def has_driver(self, modem_type: str) -> bool:

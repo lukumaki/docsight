@@ -422,8 +422,15 @@ def test_builtin_module_manifests_reference_existing_declared_files() -> None:
     for manifest_path in sorted(MODULES.glob("*/manifest.json")):
         module_dir = manifest_path.parent
         manifest = read_json(manifest_path)
-        assert manifest["id"].startswith("docsight.")
-        assert manifest["type"] in {"analysis", "integration", "theme"}
+        if module_dir.name == "ch7465":
+            assert manifest["id"] == "ch7465"
+            assert manifest["type"] == "driver"
+            driver_ref = manifest.get("contributes", {}).get("driver", "")
+            assert driver_ref == "driver.py:CH7465NativeLogDriver"
+            assert (module_dir / driver_ref.split(":", 1)[0]).is_file()
+        else:
+            assert manifest["id"].startswith("docsight.")
+            assert manifest["type"] in {"analysis", "integration", "theme"}
         for key, value in manifest.get("contributes", {}).items():
             if key in {"collector", "publisher"}:
                 value = value.split(":", 1)[0]

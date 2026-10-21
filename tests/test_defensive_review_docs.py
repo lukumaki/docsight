@@ -15,7 +15,11 @@ SECRET_PATTERNS = [
 
 def test_public_docs_and_text_fixtures_do_not_contain_reusable_secret_examples():
     scanned = []
-    candidates = list((ROOT / "docs").rglob("*")) + list((ROOT / "tests").rglob("*"))
+    candidates = (
+        list((ROOT / "docs").rglob("*"))
+        + list((ROOT / "investigation").rglob("*"))
+        + list((ROOT / "tests").rglob("*"))
+    )
     candidates.extend(ROOT.glob("*.md"))
 
     for candidate in candidates:

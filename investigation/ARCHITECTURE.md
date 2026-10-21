@@ -1,0 +1,93 @@
+# DOCSight CH7465ONE Integration Architecture
+
+This document records the current technical model for integrating the Hungarian ONE Compal CH7465ONE's native Network Log with DOCSight. It applies to the firmware investigated in this project, `CH7465ONE-NCIP-6.15.20.5-3-SH`, and must not be read as a compatibility claim for other firmware builds.
+
+## Evidence labels
+
+- **VERIFIED (in source):** confirmed by inspection of the current local source. Source inspection is distinct from automated test verification.
+- **OBSERVED:** present in the user's manual, read-only DevTools captures on the investigated modem/firmware; not a general firmware guarantee.
+- **PROPOSED:** a design recommendation, not implemented or accepted upstream.
+- **UNKNOWN:** evidence is insufficient for a reliable conclusion.
+
+## Current verified model
+
+### Modem endpoint and response
+
+**OBSERVED:** Opening the Network Log page triggers `POST /xml/getter.xml` with form field `fun=13`. The XML root is `eventlog_table`. A response has 20 `eventlog` elements and 2 `wifieventlog` elements; each has `prior`, `text`, `time`, and `t`. Two successive responses were exactly identical in entries and order. The `eventlog` and `wifieventlog` categories are distinct; entries ascend by time within each category, while the combined XML is not globally chronological. A T3 timeout entry is reported with native `critical` priority. Do not merge the categories or infer a total chronological order from document order.
+
+**OBSERVED:** For these two observations on 2026-10-20, `t` values are consistent with Unix epoch seconds and the displayed `time` values are consistent with local time at UTC+2. The values remained stable across these two identical responses. This does not establish that `t` is always unique, immutable, or stable across reboot, clock adjustment, or log replacement. Preserve original `prior`, `text`, `time`, and `t`; retain an ingestion timestamp separately in UTC.
+
+**UNKNOWN:** Whether retrieval is paginated; retention and completeness; whether 20 `eventlog` rows is a cap or merely the observed response size; collision behavior; and behavior across reboot. No claim is made beyond the captured responses. Severity semantics beyond the observed native T3 priority are also unknown. The modem restricts simultaneous administration sessions, so any future retrieval must reuse the existing authenticated session.
+
+### DOCSight driver and poll lifecycle
+
+**Verified in source:** `app/drivers/ch7465.py` owns the CH7465 `requests.Session` and handles login and authenticated XML requests. The standard driver currently implements signal/device retrieval, not vendor Network Log retrieval. `app/drivers/base.py` defines the required driver methods and has no modem-event API.
+
+**Verified in source:** `app/collectors/modem.py` calls `login()` on its driver and then obtains device and DOCSIS data from that driver instance. This is the existing owner of the modem authentication session and is the appropriate place to coordinate an optional Network Log request.
+
+### Built-in CH7465 module and session sharing
+
+**VERIFIED in source:** The approved architecture is Option A: the CH7465 native-log extension is a built-in DOCSight module under `app/modules/ch7465/`, listed in `app/builtin_modules.py`. Its manifest contributes a driver under the exact `ch7465` key. The application module loader resolves it into the per-app driver registry, where module drivers take precedence over the standard driver for that key. The extension subclasses the standard `CH7465Driver`, so login and ordinary DOCSIS methods remain inherited.
+
+The collector calls the optional native-log method only when `ch7465_network_log_enabled` is true, and it uses the driver instance already used for DOCSIS polling. It does not create another login or polling schedule. Failures from the optional fetch or native-event storage are isolated from the normal DOCSIS collection path.
+
+**VERIFIED implementation correction in this phase:** CH7465 driver contribution import or class-validation failure now omits only that optional override while keeping the standard driver registered. If the extension constructor fails, the per-app driver registry falls back to the standard CH7465 driver. Built-in module provenance is retained for driver classification; community overrides remain classified as community drivers. Built-in manifest discovery remains strict. The built-in CH7465 implementation uses its canonical Python import so module/type identity is stable; isolated dynamic imports remain in place for community drivers. The extension retains the existing standard CH7465 display name and hints in the application-owned registry.
+
+**Historical design note:** Earlier Phase 4 analysis proposed a community driver override plus minimal core support. The user subsequently selected the built-in DOCSight module architecture. The standalone community-collector limitation remains true, but is no longer the selected architecture.
+
+### Event storage and Smart Capture
+
+**Verified in source:** DOCSight's generic event table and APIs can store/display event records. The current schema has no generic idempotency/source key for Network Log rows, so repeated polling would need storage support to deduplicate persistently. `save_events_with_ids()` makes event IDs available to Smart Capture-oriented collectors.
+
+**Verified in source:** In the inspected checkout, Smart Capture is explicitly wired in `app/main.py` to the Connection Monitor collector. The generic module collector construction in `app/collectors/__init__.py` does not inject the Smart Capture engine into community collectors.
+
+## Implemented integration status (source inspection)
+
+**VERIFIED by source inspection in this checkout:** Step 4.9 integration and the Step 4.14 resilience changes are present. Retrieval is controlled by `ch7465_network_log_enabled` and defaults off. The built-in `ch7465` module driver subclasses the existing driver and fetches `fun=13` using its authenticated session; streamed XML is bounded to 1 MiB and parsed into separate `eventlog` and `wifieventlog` rows while preserving the native fields. The Step 4.27 parser correction validates the document with Python's Expat parser before building the event tree, rejecting DTD and custom-entity declarations across UTF-8 and UTF-16 while retaining predefined XML entities.
+
+The optional collector hook runs in the existing poll and isolates fetch/storage exceptions. Native rows use dedicated SQLite tables, endpoint-scoped salted HMAC identity, a versioned category-aware fingerprint with duplicate occurrence ordinals and collision checking, and `history_days` retention. The authenticated `GET /api/modem-native-events` endpoint is read-only and caps returned pages at 200 records. Native rows are not routed through generic DOCSight events, acknowledgments, notifications, or Smart Capture.
+
+**VERIFIED in source after Step 4.33:** Core modem startup diagnostics no longer log the configured modem URL or username. Core modem polling failures and CH7465 connection-info failures log the exception class without arbitrary exception text. Unrecognized CH7465 authentication responses produce a fixed generic error; known firmware error codes retain their existing safe messages. The removed startup URL/username log line was present in the PR base commit, so it predates this feature branch. This correction is limited to the core modem path and CH7465 driver; other modem-driver diagnostics have not received a comprehensive review.
+
+**Verification boundary:** Source inspection and static checks are not pytest verification. The regression suite includes registration/fallback, poll isolation, session reuse, migration, API authorization/pagination, collision, retention, production archive/restore, and parser declaration-rejection cases. CI run 39487393259 passed for the implementation commit before Step 4.27; that run does not include this parser correction. The current environment lacks pytest, so the new regression tests have not been run by pytest. No live modem verification was performed; firmware compatibility and log completeness remain unverified.
+
+**VERIFIED offline in Step 4.50 (2026-10-21):** The pre-native-log schema matches development baseline `04d0c7d5342e79a8d4cf3ebaf504c8a26ed112a5`, whose storage source matches official upstream revision `84d2ba24f651f030c43444c501fcd7059ff5a862`. It records core migrations 0001 through 0005 and `schema_version` value `2`, including `events.is_demo`, but contains neither native-event table. The corrected regression test seeds synthetic legacy rows with SQLite before constructing current `SnapshotStorage`. Direct execution verified unchanged legacy values and event columns, creation of both native tables and the three named indexes, preservation of prior migration stamps, addition of the native migration stamp, and unchanged schema/data/registry on reopening. The migration registry advances without requiring the coarse schema version to change from `2`. This was direct test-function execution with production code and network socket creation blocked, not pytest or CI. No production migration or architecture was changed.
+
+**VERIFIED offline in Step 4.52 (2026-10-21):** The test now compares all named legacy indexes before and immediately after upgrading, including their names, owning tables, ordered indexed columns, uniqueness flags and whitespace-normalized SQL definitions. SQLite-generated internal indexes are excluded. Existing native-index, data, registry, reopening and integrity assertions remain. The test's three direct connection blocks and both shared digest helpers use `contextlib.closing` outside the connection transaction manager, so commit/rollback completes before closure. Direct execution with production storage/migrations and tracked connections passed: all 30 connections were explicitly closed with no pending transaction, and rejected SQL afterward. Only a temporary synthetic database was used, with network socket creation blocked. This is not pytest or CI verification and makes no Windows execution claim; production behavior is unchanged.
+
+**VERIFIED in source and offline in Step 4.54 (2026-10-21):** The existing CH7465 module now contributes a tab, local static assets and namespaced English strings with DOCSight's existing language fallback. The shared navigation places **Native Network Log** under Cases, with route `#mod-ch7465` and the existing generic `initModCh7465` activation hook. Dashboard rendering exposes only a collection-enabled boolean for the notice. The authenticated dashboard and unchanged native-event API provide the existing authentication boundary; without an administrator password the view explains the requirement and issues no native-event request. Collection being disabled does not hide historical stored rows.
+
+The viewer reads only `GET /api/modem-native-events?limit=100`, adding the API's numeric `before_id` cursor for older pages. Each page replaces the preceding page; Refresh returns to the newest page. It loads once on first view entry, then only on manual actions, with no automatic refresh interval. A 15-second browser request timeout aborts a stalled stored-data request. Same-origin credentials, the existing base-path URL helper, redirect rejection, response-shape checks and fixed error messages keep the read path bounded and avoid exposing arbitrary error bodies. All displayed modem fields use DOM `textContent`, and descriptions wrap without truncation. Raw `time` is preserved verbatim rather than passed to DOCSight's timezone formatter, because the modem timestamp's timezone remains unverified. Native retrieval, authentication/session handling for the modem, polling, analysis, snapshots, deduplication, migrations and schemas are unchanged.
+
+**Step 4.54 verification boundary:** Five Flask test functions passed by direct execution with socket creation blocked and temporary synthetic configuration; this is not pytest execution. On the existing bundled Node 24 runtime, 32 focused JavaScript tests passed, including 12 new viewer cases and one new routing case. A separate installed Playwright/Chrome check passed 15 synthetic checks against the rendered tab and existing CSS, with interception installed before page creation, all responses fulfilled offline, all other requests denied, and browser shutdown completed. Desktop/mobile layout and literal rendering of synthetic HTML-shaped fields were checked. AST, manifest/JSON, JavaScript syntax and diff checks passed. Pytest is unavailable; no dependencies were installed and no CI or live-device check was run for this change. Step 4.53's successful Tests run 39621701528 covers the preceding commit `9f651aed6c4a7aba90b3202ada41358cdd2f4ae2`, not this viewer.
+
+**Local data permissions — verified by source inspection:** SQLite database creation and data-directory creation do not explicitly enforce restrictive permissions; their modes depend on the process umask and surrounding directory permissions. Configuration and key files are chmodded to owner read/write where created or saved. Backup archives and restore staging files are created with `tempfile.mkstemp` (owner-only by default), but backup and data directory permissions are not explicitly set. Actual runtime file modes were not inspected, and no database contents were read.
+
+The design below records the original community-module proposal and rationale as historical context. It is superseded by the approved built-in architecture above; unresolved modem behavior and the requirement to use synthetic offline fixtures remain applicable.
+
+## Original proposed architecture
+
+The earlier **community CH7465 driver override plus minimal upstream core support** proposal was superseded by the user's selection of the built-in module architecture. Its technical rationale is retained here as historical context:
+
+1. An explicit configuration setting controls retrieval and defaults to off. When enabled, the `ch7465` extension preserves the standard authentication/session behavior and issues `fun=13` through that already-authenticated session.
+2. The core `ModemCollector` invokes the optional method during its existing poll, after successful acquisition of core signal data. It must not re-login, create another session, or run an independent schedule.
+3. The core catches Network Log request/parse/storage failures locally so ordinary signal monitoring continues; these failures must not be reported as core polling failures.
+4. Initially test parsing and deduplication offline with sanitized fixtures only. Fixtures must be synthetic or irreversibly redacted and contain no pasted raw XML, credentials, SID/sessionToken values, personal addresses, or MAC addresses. No automated or live modem test is part of this documentation phase.
+5. Preserve the category (`eventlog` versus `wifieventlog`) and device scope as independent identity dimensions. A proposed persistent identity is a deterministic fingerprint over device scope, category, and the exact raw `prior`, `text`, `time`, and `t` values, plus an occurrence ordinal among identical rows in one category/response. Retain raw values alongside the key, and record a separate UTC ingestion timestamp. This makes unchanged repeated snapshots idempotent while preserving identical rows within one response. It is still **PROPOSED**: `t` collisions and reboot behavior are unknown, so do not assume the fingerprint is globally unique; preserve collision evidence and avoid destructive merges. Confirm schema and retention behavior before implementation.
+6. Do not connect these events to notifications or Smart Capture. Any later request would require a separate design decision after event semantics and false-positive behavior are validated.
+
+Authentication/session material must never be persisted or logged: redact SID and `sessionToken` fields from diagnostics and examples. Redact sensitive addresses, including IP and MAC values, from stored fixtures, reports, and logs. This specification contains no raw pasted XML or personal address/MAC values.
+
+The proposal was implemented in Step 4.9 as described above. The integration remains default-off. The implementation and its failure isolation still require the focused regression suite and normal CI verification; this project has not established completeness or retention behavior of the modem's log.
+
+## Source map
+
+- `app/drivers/ch7465.py` — CH7465 authentication and HTTP session ownership.
+- `app/drivers/base.py` — modem driver interface.
+- `app/builtin_modules.py`, `app/module_registry.py`, `app/module_contributions.py`, `app/registration.py`, `app/drivers/registry.py` — built-in module discovery, driver contribution resolution, registration, provenance, and fallback.
+- `app/collectors/modem.py` — core modem polling lifecycle.
+- `app/collectors/__init__.py`, `app/collectors/base.py`, `app/main.py` — module collector construction and scheduling.
+- `app/storage/schema.py`, `app/storage/events.py`, `app/storage/migrations.py` — event schema, writes, and migrations.
+- `app/smart_capture/engine.py`, `app/main.py` — event evaluation and current Smart Capture wiring.
+- `investigation/PROJECT_LOG.md` — phase chronology and status.
+- Workspace-level historical reports, currently outside this Git clone: `PHASE4_DOCSIGHT_FORK_AUDIT.md` and `STEP2_GIT_CONNECTION_AUDIT.md`.

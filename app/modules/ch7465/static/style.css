@@ -1,0 +1,5 @@
+.native-network-log table { table-layout: fixed; }
+.native-network-log td {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

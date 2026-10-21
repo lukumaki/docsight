@@ -11,6 +11,7 @@ from .smart_capture import SmartCaptureMethods
 from .cleanup import CleanupMethods
 from .device import DeviceStorageMethods
 from .pwa_push import PwaPushMethods
+from .native_events import NativeEventMethods
 
 __all__ = [
     "SnapshotStorage",
@@ -29,6 +30,7 @@ class SnapshotStorage(
     CleanupMethods,
     DeviceStorageMethods,
     PwaPushMethods,
+    NativeEventMethods,
     StorageBase,
 ):
     """Persist DOCSIS analysis snapshots to SQLite."""

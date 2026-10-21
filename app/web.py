@@ -565,6 +565,10 @@ def index():
         has_us_ofdma=signal_health_view.has_us_ofdma(analysis),
         device_info=dev_info,
         demo_mode=demo_mode,
+        native_log_collection_enabled=bool(
+            _config_manager and _config_manager.get("modem_type") == "ch7465"
+            and _config_manager.get("ch7465_network_log_enabled", False)
+        ),
         onboarding_checklist=_onboarding_checklist(_config_manager, demo_mode),
         gaming_index=gaming_index,
         bnetz_latest=bnetz_latest,
