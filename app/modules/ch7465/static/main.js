@@ -45,15 +45,15 @@
         table.hidden = true;
         error.hidden = true;
         error.textContent = '';
-        status.textContent = text('loading', 'Loading stored events…');
+        status.textContent = text('native_log_loading', 'Loading stored events…');
         var authFailure = false;
         var controller = new AbortController();
         // A request timeout, never a polling or refresh timer.
         var timeout = setTimeout(function() { controller.abort(); }, 15000);
         try {
-            var url = '/api/modem-native-events?limit=' + pageSize;
+            var url = docsightUrl('/api/modem-native-events?limit=' + pageSize);
             if (before !== null) url += '&before_id=' + before;
-            var response = await fetch(docsightUrl(url), {
+            var response = await fetch(url, {
                 method: 'GET', credentials: 'same-origin', cache: 'no-store',
                 redirect: 'error', signal: controller.signal
             });
@@ -65,7 +65,7 @@
             data.events.forEach(function(event) {
                 var row = document.createElement('tr');
                 var values = [event.time, event.prior, event.text,
-                    event.category === 'eventlog' ? text('system', 'System') : text('wifi', 'Wi-Fi')];
+                    event.category === 'eventlog' ? text('native_log_system', 'System') : text('wifi', 'Wi-Fi')];
                 var labels = [text('time', 'Modem-reported time'), text('priority', 'Priority'),
                     text('description', 'Full event description'), text('category', 'Category')];
                 values.forEach(function(value, index) {

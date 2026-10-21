@@ -11,7 +11,7 @@
     <p class="form-hint">{{ t.get('ch7465.stored_only', 'Stored CH7465 events only. Refresh reads the database; it does not query the modem. Newest stored events appear first.') }}</p>
     <p class="form-hint">{{ t.get('ch7465.raw_time', 'Modem-reported time is shown exactly as stored. Its timezone is unverified; no timezone conversion is applied.') }}</p>
     {% if not native_log_collection_enabled %}
-    <p class="form-hint" id="native-log-disabled">{{ t.get('ch7465.disabled', 'CH7465 native-log collection is disabled. Previously stored events remain available.') }}</p>
+    <p class="form-hint" id="native-log-disabled">{{ t.get('ch7465.native_log_disabled', 'CH7465 native-log collection is disabled. Previously stored events remain available.') }}</p>
     {% endif %}
     {% if not auth_enabled %}
     <p role="alert" id="native-log-auth-required">{{ t.get('ch7465.auth_required', 'Configure an administrator password and sign in to view native events.') }}</p>
