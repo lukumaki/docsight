@@ -245,3 +245,33 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved:** The test suite and GitHub Actions have not verified this correction. The separate driver logging paths noted above remain for review. Live modem compatibility and behavior were not retested.
 
 **Next step:** Review the local diff and checks, then await separate approval before any Git staging, commit, push, or CI run.
+
+## Step 4.50 — Authentic legacy-database migration regression test
+
+**Report date:** 2026-10-21
+
+**Objective:** Correct the native-event migration regression test so it upgrades an authentic pre-native-log schema containing existing synthetic event data, without changing production migrations or behavior.
+
+**Verified defect and baseline:** The previous test ran the first five migrations, then constructed current `SnapshotStorage` before inserting its legacy event. That constructor already applied the native migration, so preservation of pre-upgrade event data was not exercised. Development baseline `04d0c7d5342e79a8d4cf3ebaf504c8a26ed112a5` has the same storage schema and migration source as its official-upstream parent `84d2ba24f651f030c43444c501fcd7059ff5a862`. Source/AST comparison confirmed that the baseline schema and original migration helper functions remain unchanged. The authentic legacy state has core migration stamps 0001 through 0005, `schema_version` equal to `2`, and `events.is_demo`, but no native-event tables or indexes.
+
+**Changes:** Reworked the existing test in `tests/test_ch7465_native_events.py` to build that state using the existing legacy migration sequence, insert two synthetic events directly through SQLite, and verify all preconditions before the first current `SnapshotStorage` construction. Assertions preserve all event fields, explicit IDs, acknowledgment/demo flags, JSON/NULL details, Unicode text, event column definitions and prior migration timestamps; verify both native tables and each named index's columns/uniqueness; and verify the current migration registry and schema-version metadata. The existing synthetic native insert remains. Reopening is checked using the existing schema/data digest helpers, native-row equality, unchanged registry stamps, an empty pending-migration result and SQLite integrity checking. Updated the project README status and architecture verification record. No production source was changed.
+
+**Validation:** Direct execution of the corrected test function passed using the actual production storage, parser and migration helpers against a temporary database under `/tmp`. Network socket creation was blocked during execution, and the temporary database was removed afterward. The function and its synthetic XML fixture were selected from the test AST to avoid importing pytest or starting an application. This is not pytest execution. Python AST checks and `git diff --check` passed. Pytest is unavailable in both system Python and the repository virtual environment; no dependencies were installed and no CI was triggered.
+
+**Findings and unresolved issues:** No production migration defect was demonstrated. Focused pytest execution and independent review remain pending. The native-log total-deadline limitation and browser-validator failure are separate, unchanged issues; this checkpoint did not test or modify either.
+
+**Safety and next step:** No modem access, DOCSight startup, private test-database access, Git mutation, PR update or publication occurred. Review the focused test/documentation diff; await explicit approval before staging, committing, pushing or triggering CI.
+
+## Step 4.52 — Migration-test connection cleanup and legacy index preservation
+
+**Report date:** 2026-10-21
+
+**Objective and preconditions:** Implement only the two test-quality improvements identified in Step 4.51. Verified branch `ch7465one-native-log-ci`, HEAD `930a0cf6819bd97b6fb127098fc0379677d77c4d`, exactly the four expected unstaged modifications, and no staged or untracked files. The complete working diff matched the reviewed Step 4.51 snapshot before editing.
+
+**Changes:** In the existing migration test, wrap each direct SQLite connection with `contextlib.closing` outside its transaction context, preserving commit/rollback before close. Apply the same cleanup to `schema_digest()` and `data_digest()` in `tests/sqlite_helpers.py`; their query and digest behavior is unchanged. Capture all non-internal named legacy indexes before current storage initialization and compare their names, table associations, ordered columns, uniqueness properties and normalized SQL immediately after the real migration. Keep all prior legacy-data, migration-stamp, native-index, reopening and integrity checks intact. Updated README and architecture verification notes. No production code or unrelated test function was changed; the supporting digest-helper file is the fifth modified file.
+
+**Validation:** The hardened test function passed by direct execution against production storage, migration and parser code using a temporary synthetic SQLite database. Socket creation was blocked, and connection instrumentation retained references to every opened connection: all 30 were explicitly closed, none had a pending transaction at close, and each rejected subsequent SQL. The temporary directory was cleaned up. Python AST checks, static index/connection-lifecycle review and `git diff --check` passed. Pytest remains unavailable in both checked environments; no dependency installation or CI execution occurred. This is direct-function verification, not pytest or Windows runtime verification.
+
+**Findings and compatibility:** No production migration defect was demonstrated. Metadata queries, identifier quoting and standard-library context managers are portable to the existing Python 3.13 Ubuntu/Windows lanes; actual CI execution remains pending. The native-log deadline and browser-validator issues are unchanged and outside this checkpoint.
+
+**Safety and next step:** No modem access, DOCSight startup, private test-database access, production migration/storage edit, Git mutation, PR change or CI trigger occurred. The test/helper and documentation changes are ready for review and separately authorized commit/CI. Await explicit approval before staging, committing, pushing or publishing.

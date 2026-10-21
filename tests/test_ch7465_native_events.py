@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,8 +8,9 @@ from app.drivers.ch7465 import CH7465Driver
 from app.modules.ch7465.driver import CH7465NativeLogDriver
 from app.modules.ch7465.parser import MAX_XML_BYTES, parse_network_log
 from app.storage import SnapshotStorage
-from app.storage.migrations import CORE_MIGRATIONS, run_migrations
+from app.storage.migrations import CORE_MIGRATIONS, SCHEMA_VERSION, run_migrations
 from app.modules.backup.backup import create_backup_to_file, restore_backup
+from tests.sqlite_helpers import data_digest, schema_digest
 
 
 SYNTHETIC_XML = b"""<eventlog_table>
@@ -266,19 +268,113 @@ def test_history_retention_uses_ingestion_time_and_allows_reimport(tmp_path):
 
 
 def test_migration_adds_native_tables_and_preserves_generic_event_acknowledgments(tmp_path):
-    db_path = str(tmp_path / "upgrade.db")
-    run_migrations(db_path, CORE_MIGRATIONS[:-1])
-    legacy = SnapshotStorage(db_path, max_days=0)
-    event_id = legacy.save_event("2026-01-01T00:00:00Z", "warning", "synthetic", "keep me")
-    assert legacy.acknowledge_event(event_id)
+    def named_index_definitions(conn):
+        definitions = {}
+        for name, table, sql in conn.execute(
+            "SELECT name,tbl_name,sql FROM sqlite_master "
+            "WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall():
+            quoted_table = table.replace('"', '""')
+            quoted_name = name.replace('"', '""')
+            unique = next(
+                row[2] for row in conn.execute(f'PRAGMA index_list("{quoted_table}")')
+                if row[1] == name
+            )
+            columns = tuple(
+                row[2] for row in conn.execute(f'PRAGMA index_info("{quoted_name}")')
+            )
+            definitions[name] = (table, columns, unique, " ".join(sql.split()))
+        return definitions
 
+    db_path = str(tmp_path / "upgrade.db")
+    native_migration_id = "core-0006-modem-native-events"
+    native_position = next(
+        i for i, migration in enumerate(CORE_MIGRATIONS)
+        if migration.migration_id == native_migration_id
+    )
+    legacy_migrations = CORE_MIGRATIONS[:native_position]
+    # Verified against baseline 04d0c7d5 (upstream source revision 84d2ba24).
+    # These existing helpers produce schema_version 2, including events.is_demo.
+    legacy_ids = [
+        "core-0001-baseline", "core-0002-incidents-to-journal",
+        "core-0003-demo-flags", "core-0004-snapshot-columns", "core-0005-meta-version",
+    ]
+    assert [migration.migration_id for migration in legacy_migrations] == legacy_ids
+    assert run_migrations(db_path, legacy_migrations) == legacy_ids
+    legacy_rows = [
+        (17, "2026-01-01T00:00:00Z", "warning", "synthetic",
+         "Keep acknowledged synthetic event", '{"source":"synthetic","count":2}', 1, 0),
+        (29, "2026-01-02T00:00:00Z", "info", "synthetic_demo",
+         "Keep unacknowledged synthetic event: \u00e1", None, 0, 1),
+    ]
+    event_query = (
+        "SELECT id,timestamp,severity,event_type,message,details,acknowledged,is_demo "
+        "FROM events ORDER BY id"
+    )
+    registry_query = "SELECT id,applied_at FROM _docsight_migrations ORDER BY id"
+    version_query = "SELECT value FROM _docsight_meta WHERE key='schema_version'"
+    native_tables = {"modem_native_events", "modem_native_event_identity"}
+    native_indexes = {
+        "idx_native_events_identity": (1, ["device_scope", "fingerprint_version", "fingerprint"]),
+        "idx_native_events_ingested": (0, ["ingested_at_utc"]),
+        "idx_native_events_scope_ingested": (0, ["device_scope", "ingested_at_utc"]),
+    }
+    # Seed genuine legacy rows without invoking current storage initialization.
+    # Commit or roll back via conn before the outer closing manager closes it.
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        conn.executemany(
+            "INSERT INTO events "
+            "(id,timestamp,severity,event_type,message,details,acknowledged,is_demo) "
+            "VALUES (?,?,?,?,?,?,?,?)", legacy_rows,
+        )
+        assert conn.execute(event_query).fetchall() == legacy_rows
+        assert conn.execute(version_query).fetchone() == ("2",)
+        legacy_registry = conn.execute(registry_query).fetchall()
+        assert [row[0] for row in legacy_registry] == legacy_ids
+        legacy_event_columns = conn.execute("PRAGMA table_info(events)").fetchall()
+        objects = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+        assert not native_tables.intersection(objects)
+        assert not native_indexes.keys() & objects
+        legacy_indexes = named_index_definitions(conn)
+        assert {"idx_events_ts", "idx_events_ack", "idx_events_type_ts"} <= legacy_indexes.keys()
+
+    # First current SnapshotStorage construction performs the real upgrade.
     upgraded = SnapshotStorage(db_path, max_days=0)
-    assert upgraded.save_native_events("http://router.local", parse_network_log(SYNTHETIC_XML)) == 3
-    assert upgraded.get_events()[0]["id"] == event_id
-    assert upgraded.get_events()[0]["acknowledged"] == 1
-    with sqlite3.connect(db_path) as conn:
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        assert conn.execute(event_query).fetchall() == legacy_rows
+        assert conn.execute("PRAGMA table_info(events)").fetchall() == legacy_event_columns
+        assert conn.execute(version_query).fetchone() == (str(SCHEMA_VERSION),)
+        upgraded_registry = conn.execute(registry_query).fetchall()
+        assert upgraded_registry[:len(legacy_registry)] == legacy_registry
+        assert [row[0] for row in upgraded_registry] == [
+            migration.migration_id for migration in CORE_MIGRATIONS
+        ]
+        assert sum(row[0] == native_migration_id for row in upgraded_registry) == 1
+        assert all(row[1] for row in upgraded_registry)
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"events", "modem_native_events", "modem_native_event_identity"} <= tables
+        assert {"events", *native_tables} <= tables
+        indexes = {row[1]: row[2] for row in conn.execute("PRAGMA index_list(modem_native_events)")}
+        for name, (unique, columns) in native_indexes.items():
+            assert indexes[name] == unique
+            assert [row[2] for row in conn.execute(f"PRAGMA index_info({name})")] == columns
+        upgraded_indexes = named_index_definitions(conn)
+        assert legacy_indexes.keys() <= upgraded_indexes.keys()
+        assert all(upgraded_indexes[name] == definition for name, definition in legacy_indexes.items())
+    assert upgraded.save_native_events("http://router.local", parse_network_log(SYNTHETIC_XML)) == 3
+    native_rows = upgraded.get_native_events("http://router.local")
+    upgraded_schema = schema_digest(db_path)
+    upgraded_data = data_digest(db_path)
+
+    reopened = SnapshotStorage(db_path, max_days=0)
+    assert reopened.get_native_events("http://router.local") == native_rows
+    assert run_migrations(db_path, CORE_MIGRATIONS) == []
+    assert schema_digest(db_path) == upgraded_schema
+    assert data_digest(db_path) == upgraded_data
+    with closing(sqlite3.connect(db_path)) as conn, conn:
+        assert conn.execute(event_query).fetchall() == legacy_rows
+        assert conn.execute(registry_query).fetchall() == upgraded_registry
+        assert conn.execute(version_query).fetchone() == (str(SCHEMA_VERSION),)
+        assert conn.execute("PRAGMA integrity_check").fetchone() == ("ok",)
 
 
 def test_native_event_backup_restore_persists_identity_and_deduplication(tmp_path):
