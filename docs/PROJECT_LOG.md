@@ -171,3 +171,44 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved issues:** Actual CPU/memory cost of DOCSight and Speedtest Tracker on this router; how much PPPoE history `logread` retains; whether the OpenWrt interface status exposes enough to detect reconnects reliably; whether upstream wants an OpenWrt WAN monitor; whether the router CPU limits PPPoE throughput during tests; the line's contracted speed (needed to size test traffic); whether the older SSH keys were removed.
 
 **Next steps:** Decide whether to deploy DOCSight in Docker on the router (explicit approval required before any container or configuration change). Measure resource use with `docker stats` after deployment. Inspect `udm-wan-monitor` source and the module TEMPLATE before drafting an OpenWrt module. Open an upstream discussion issue. Keep the CH7465ONE track paused until a device is available.
+
+## Phase 6 — udm-wan-monitor source review and OpenWrt speed-test prior art
+
+**Report date:** 2026-11-22
+
+**Environment:** Cloud session, branch `lukumaki/inspiring-meitner-y7wb3g`. Research was done by reading public GitHub pages and files; no router, modem, or container was accessed, and no code from the reviewed projects was run.
+
+**Objective:** Understand the existing `udm-wan-monitor` community module before proposing an OpenWrt equivalent, review the OpenWrt speed-test projects the user supplied, and refine the draft upstream discussion post.
+
+**Findings — `udm-wan-monitor` v3.3.4 (Verified: `collector.py`, `manifest.json`, and `routes.py` read from `itsDNNS/docsight-modules` `main` on 2026-11-22; its templates, translations, static files, and tests were not read):**
+
+- It is an `integration` module contributing a collector, routes, settings panel, dashboard tab, i18n, and static files, plus a menu entry. Config keys, routes, and the event type are UniFi-specific (`udm_wan_*`, `/api/udm-wan/*`, `udm_wan`). Modules cannot share code, so an OpenWrt version would be a sibling module.
+- The collector polls every 60 s by default, caches one authenticated `requests.Session` behind a lock, and drops it on errors so the next poll logs in again. Failures are returned as failed `CollectorResult` objects.
+- It logs in to the UniFi controller and reads the gateway's WAN state (`up`, `alive`, `online`, `is_uplink`) for WAN1/WAN2.
+- Change detection uses an in-memory module-level state dict. The first poll after a start only sets the baseline and emits no event. Consequently a drop during a DOCSight restart, or between two polls, is not recorded.
+- Events are written with `storage.save_event(timestamp, severity, event_type, message, details)`. Severity is `critical` for down, `info` for restored, and `warning` for failover. A configurable primary WAN downgrades `critical` to `warning` for the other link. The WAN IP appears in the message text and in `details`.
+- The password is declared in `config_secrets`. Routes use `@require_auth`; there is a live connection-test endpoint. TLS verification is optional and defaults off, set per session.
+- Route files are loaded as a standalone module, so relative imports fail; the module works around this. It also imports `get_collectors` from `app.web`, which is not in the supported-import list in `CONTRIBUTING.md`. A new module should avoid both.
+- Storage uses only the core event table; the module keeps no database of its own.
+
+**Findings — OpenWrt speed-test projects (Verified from README/repository pages; code not audited; figures marked author-reported are the authors' own):**
+
+- **ISPy (`chaffed/luci-app-ispy`, v1.2.0, 2026-11-18, MIT, 8 commits, one contributor, commit messages record AI co-authorship):** A LuCI app for OpenWrt 21.02+ and GL.iNet routers that runs scheduled speed tests (5 min to 1 week), stores results as CSV, and produces a printable report against the advertised speed. It has three engines: a built-in Cloudflare test needing only `curl`, the Ookla CLI, and `librespeed-cli`. Each result also records WAN-port traffic, traffic before the test, busiest-core CPU load, link speed, and the test server; refused or throttled tests are stored as failed. It depends on `luci-base`, `curl`, and `jsonfilter`, and exposes a ubus API (`luci.ispy`) and a CLI. **Author-reported:** a test moves about link speed × duration × 2 bytes, roughly 1.4 GB per test and about 1 TB per month hourly on a 1 Gbit/s line at the default 10 s per direction; Cloudflare refused a test after about 840 MB on a 700+ Mbit/s line (one observation) and the built-in engine fits lines up to roughly 300 Mbit/s, above which the Ookla CLI is advised; router CPU can limit multi-gigabit results. Its README is oriented toward US FCC complaint conventions.
+- **User-reported vs. verified:** The user reported that ISPy "is also for cable modems". The ISPy README read here describes ISP-agnostic speed testing and does not mention cable modems. The cable-modem tool is its sibling, Modem Health (`luci-app-modemhealth`, Phase 5).
+- **`muink/luci-app-netspeedtest` (MIT, 118 stars, 63 commits, last commit 2026-08-01):** An interactive LuCI page offering iperf3, librespeed, and speedtest. Its README depends on `python3-speedtest-cli` and warns that this and its Python dependencies can take a lot of router storage. A commit message records that using ucode for speed testing froze the system. The README does not describe scheduling, history, or reports (not verified in code).
+- **`sirpdboy/netspeedtest` (39 stars, one contributor, latest release v5.2.1 2026-03-29, latest commit shows a failing check):** A related package offering a LAN web speed test (HomeBox), LAN iperf3, speedtest.net through the Ookla CLI, and port-latency tests. Its README credits `muink/luci-app-netspeedtest` for `speedtest.js`. These are interactive diagnostics, not a long-term ISP evidence log. The same author lists a `luci-app-watchdog` project that was not reviewed.
+
+**Implications (Proposed, not implemented):**
+
+1. The OpenWrt WAN-monitor module should follow the `udm-wan-monitor` structure but improve on it: use the interface uptime counter to detect reconnects between polls, persist last-seen state if upstream allows it, and keep public IPs out of event text by default.
+2. DOCSight's Speedtest module reads only Speedtest Tracker's API. ISPy results are therefore not visible in DOCSight. Options: Speedtest Tracker as a second container (heavier, supported by DOCSight); ISPy standalone beside DOCSight (lightweight, own report, no DOCSight integration); or a possible later DOCSight module reading ISPy's CSV or ubus API (not evaluated).
+3. The speed-test traffic estimate in Phase 5, previously an assumption, now has an author-reported figure (about 1.4 GB per test at 1 Gbit/s). The user's line speed is still unknown.
+4. The draft upstream Ideas post (saved outside this repository in the session scratchpad, not posted) now asks five questions: sibling module versus shared abstraction, how custom event types are displayed, persisting module state, router credential policy, and Generic Router mode caveats.
+
+**Changes:** Documentation only (`docs/PROJECT_LOG.md`, `docs/ARCHITECTURE.md`, `README.md`). No source, router, container, or Git state change by the assistant in this phase.
+
+**Tests:** None run. Nothing from the reviewed projects was executed.
+
+**Unresolved issues:** Whether upstream wants an OpenWrt WAN monitor and how custom event types are shown; whether OpenWrt's interface status over ubus gives reliable reconnect detection on the user's router; the user's contracted line speed; CPU and memory cost of Speedtest Tracker versus ISPy on the user's router; whether a DOCSight-side bridge to ISPy results is worthwhile; the `udm-wan-monitor` tests and templates were not reviewed.
+
+**Next steps:** The user reviews and posts the upstream discussion themselves. After a maintainer reply, run read-only status checks on the router (run by the user, output reported) before writing code. Decide between Speedtest Tracker and ISPy for speed history before any deployment on the router. Any commit or push of these documentation updates needs fresh explicit approval.

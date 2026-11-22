@@ -67,6 +67,30 @@ Added 2026-11-22. This track exists because the CH7465ONE is currently unavailab
 
 **Prior art (public pages read, code not audited):** `chaffed/luci-app-modemhealth` is an OpenWrt package with the same evidence goal for Arris SURFboard S33/S34 cable modems. It is a possible collaboration target or reference design for session handling and event de-duplication, not a dependency.
 
+### WAN-monitor reference design and speed-test options (Phase 6, proposed)
+
+Added 2026-11-22. Evidence labels as above; **Verified (public source read)** means a public repository file was read but not executed.
+
+**Verified (public source read) — `udm-wan-monitor` v3.3.4:** The collector keeps a cached authenticated session behind a lock, polls on a 60 s default interval, and detects changes against an in-memory last-seen state; the first poll after a start only sets the baseline. Events go through `save_event()` with a module-specific event type and severity (`critical` down, `info` restored, `warning` failover). The password is a module-owned secret. Routes are protected with `@require_auth`. Limits relevant to a copy for OpenWrt: state is lost on restart, drops between polls are invisible, and the WAN IP is placed in event text and details.
+
+**Proposed design for an OpenWrt WAN monitor:**
+
+1. Sibling `integration` module with its own config prefix, routes, and event type; no shared code with `udm-wan-monitor`.
+2. Detect reconnects from the WAN interface's down/up transition **and** from an interface uptime lower than expected since the previous poll. The availability of these values through the router's web API on the target firmware is **Unresolved** until checked with read-only calls.
+3. Persist last-seen state only if upstream confirms a supported mechanism (open question in the draft upstream post).
+4. Omit public IP addresses from event text by default.
+5. Avoid imports outside the supported community list (`require_auth`, `get_config_manager`, `get_storage`, `get_state`, `get_module_loader`) and avoid relative imports in the routes file.
+
+**Speed-test options on the target router (Proposed; trade-offs only):**
+
+| Option | Integration with DOCSight | Weight on router | Notes |
+|---|---|---|---|
+| Speedtest Tracker container | Supported by DOCSight's Speedtest module (URL + token) | A second container; resource use **Unresolved** | Needs a non-80 host port on this router |
+| ISPy (`chaffed/luci-app-ispy`) | None today | Shell + `curl` package, no container | Own history and report; author-reported ~1.4 GB per test at 1 Gbit/s; built-in engine fits lines up to about 300 Mbit/s |
+| `muink`/`sirpdboy` netspeedtest apps | None | Python-based or Ookla CLI dependencies | Interactive diagnostics, no evidence log described |
+
+A DOCSight-side bridge that reads ISPy results (its CSV format or ubus API) is a possible later idea and has not been evaluated. Speed tests that run on the router exercise the router's own CPU and PPPoE handling; ISPy records CPU load per test for this reason (author-reported).
+
 ## Source map
 
 - `app/drivers/ch7465.py` — CH7465 authentication and HTTP session ownership.
