@@ -137,3 +137,37 @@ This log tracks the user-specific investigation and development work for the Hun
 **Unresolved issues:** The personal fork's remote history has not been fetched or compared. Phase 3 Network Log retrieval remains a proposal; no implementation has been started.
 
 **Next steps:** Stop after Step 2 and await further user instructions. Do not proceed to Step 3 or fetch without explicit approval.
+
+## Phase 5 — OpenWrt feasibility research, router survey, and Speedtest Tracker research
+
+**Report date:** 2026-11-22
+
+**Environment:** Documentation and research were done in a cloud session on branch `lukumaki/inspiring-meitner-y7wb3g` (HEAD `8380b81` when this report was written). The cloud session cannot reach the user's LAN. All router information below was produced by read-only commands the user ran locally and pasted. The assistant did not connect to the router, the modem, or any container.
+
+**Objective:** Decide whether this project can continue without access to a CH7465ONE, by assessing whether DOCSight can be adapted for OpenWrt and for non-cable connections (fiber, DSL, mobile), and by establishing what the user's own OpenWrt router can host.
+
+**Findings:**
+
+- **User-reported:** The user has no access to a CH7465ONE. The CH7465ONE Network Log track (Phases 1–4) is blocked, not abandoned; nothing in those phases is invalidated.
+- **User-reported:** Many OpenWrt users sit behind ISP-locked modems that cannot run OpenWrt, so an OpenWrt router cannot read the line's modem status. The user has a fiber (PPPoE) connection and is interested in automated speed/latency checks that document line stability.
+- **Verified (public pages read, code not audited):** An OpenWrt project with the same goal exists: `chaffed/luci-app-modemhealth` ("Modem Health"). Its issue #1 spec describes polling a cable modem every few minutes from an OpenWrt/GL.iNet router, de-duplicating the modem event log, pinging the modem and the internet, and generating an ISP evidence report. The author's comment states v1.0.0 was delivered on 2026-11-20 and tested on one setup (Arris SURFboard S34). Only SURFboard S33/S34 are supported; the S33 is untested. Its sibling ISPy (`chaffed/luci-app-ispy`) was referenced but not inspected.
+- **Verified (search results, not audited):** Generic OpenWrt monitoring (`luci-app-statistics`/collectd ping, Prometheus node exporter, community Grafana dashboards) exists and records ping/loss but not DOCSIS signal data. Other modem-stat scrapers (`msh100/modem-stats`, `arris-tg3442de-exporter`, `vodafone-station-cli`) exist; none was found that targets the CH7465ONE or runs as an OpenWrt package.
+- **Verified in this checkout:** There are no OpenWrt references. `app/drivers/generic.py` is a no-op driver returning empty valid data so modem-independent features work standalone. The Speedtest module (`app/modules/speedtest/manifest.json`) does not run speed tests; it reads results from a separate Speedtest Tracker instance via URL and token. The Connection Monitor module does ICMP/TCP probing inside DOCSight (manifest defaults: poll interval 5000 ms, TCP port 443, outage threshold 5, loss warning 2.0%). `docker-compose.yml` publishes port 8765 and adds the `NET_RAW` capability. `.github/workflows/docker.yml` builds `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+- **Verified (DOCSight wiki and docsight-modules, read 2026-11-22):** The driver data contract is DOCSIS-shaped (channels, power, SNR, modulation), so DSL or fiber line statistics would not fit a community driver without core changes. A driver module cannot also contribute a collector. `udm-wan-monitor` is an existing `integration` module that collects WAN status from Ubiquiti routers and feeds DOCSight events; it is the closest pattern for an OpenWrt WAN monitor. The wiki asks contributors to open an issue to discuss new driver ideas first.
+- **User-reported (pasted command output):** The user's OpenWrt router is OpenWrt 25.12.6 `r33311-981c978eff`, target `x86/64`, kernel 6.12.112, board `msi-ms-7865`, ext4 rootfs. Memory total is about 5.5 GB (5,521,960 kB) with about 4.9 GB available and no swap; this suggests the planned 6 GB upgrade from the earlier hardware profile is installed (inference). `/` is 1006.8 MB with 587.9 MB free. `/mnt/storage` (108.5 GB, 96.1 GB free) holds the Docker data root. `/mnt/nas` is 88% used. Docker 29.6.1, containerd 2.2.5, docker-compose 5.1.4, and `luci-app-dockerman` are installed. WAN is up with `proto pppoe` on `eth4`, interface uptime 28,764 s at survey time. Four unrelated containers are running. No process listens on TCP port 8765.
+- **User-reported:** Key-based SSH to the router was set up through LuCI, and the user's test command returned `ubus call system board` output. Removal of the older authorized keys and the absence of a password prompt were not confirmed in this session. No key material, password, or session identifier is recorded here.
+- **Speedtest Tracker research (public documentation):** It is supported only as a container (image built by LinuxServer.io) or on NAS platforms. Scheduling uses `SPEEDTEST_SCHEDULE` (cron); old results can be pruned with `PRUNE_RESULTS_OLDER_THAN`. No official CPU or memory figures were found (**Unresolved**). GitHub issue #1316 reports multi-second page loads on Proxmox LXC and a Raspberry Pi 4; the maintainer attributed the original case to LXC performance. The default web port 80 would conflict with LuCI on this router, so a different host port is needed. **Assumption:** a full-speed test can move several GB per run on a gigabit line, so schedule frequency should be chosen deliberately.
+
+**Proposed (not implemented, not approved):**
+
+1. Run DOCSight in Docker on the OpenWrt router in Generic Router mode (data under `/mnt/storage/docsight`, port bound to the LAN address) and use its Connection Monitor for latency and outage evidence.
+2. Optionally add Speedtest Tracker as a second container, after measuring resource use on this router.
+3. Develop an OpenWrt WAN-monitor `integration` module for the community catalog, modeled on `udm-wan-monitor`, using the router's interface status (up/uptime) to record PPPoE reconnects as DOCSight events. Open an upstream issue before building it.
+
+**Changes:** Documentation only (`docs/PROJECT_LOG.md`, `docs/ARCHITECTURE.md`, `README.md`). No DOCSight source, no router configuration, no containers, and no Git state were changed by the assistant.
+
+**Tests:** None run. No DOCSight, Speedtest Tracker, or module tests were executed. Router commands were read-only and run by the user; their output is reported, not independently reproduced.
+
+**Unresolved issues:** Actual CPU/memory cost of DOCSight and Speedtest Tracker on this router; how much PPPoE history `logread` retains; whether the OpenWrt interface status exposes enough to detect reconnects reliably; whether upstream wants an OpenWrt WAN monitor; whether the router CPU limits PPPoE throughput during tests; the line's contracted speed (needed to size test traffic); whether the older SSH keys were removed.
+
+**Next steps:** Decide whether to deploy DOCSight in Docker on the router (explicit approval required before any container or configuration change). Measure resource use with `docker stats` after deployment. Inspect `udm-wan-monitor` source and the module TEMPLATE before drafting an OpenWrt module. Open an upstream discussion issue. Keep the CH7465ONE track paused until a device is available.

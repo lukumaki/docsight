@@ -47,6 +47,26 @@ Use a **community CH7465 driver override plus minimal upstream core support**:
 
 This proposal is not implemented. It preserves the built-in `CH7465Driver` source and allows its normal behavior to remain the fallback when the community override is disabled, subject to verifying the behavior of the DOCSight release selected for implementation.
 
+## OpenWrt deployment track (Phase 5, proposed)
+
+Added 2026-11-22. This track exists because the CH7465ONE is currently unavailable for testing. It does not replace or invalidate the CH7465ONE model above. Evidence labels are as defined at the top of this document, plus **User-reported** for details the user supplied from their own router.
+
+**Verified in source:** DOCSight has no OpenWrt-specific code. The generic driver (`app/drivers/generic.py`) returns empty but valid DOCSIS data, so modem-independent modules (Connection Monitor, Speedtest, Journal, reports) work without a modem. The Speedtest module only reads results from an external Speedtest Tracker instance; it does not run tests. The Connection Monitor probes with ICMP/TCP from the DOCSight process. The official image is built for `linux/amd64`, `linux/arm64`, and `linux/arm/v7`.
+
+**Verified (module documentation):** The driver data contract is DOCSIS-shaped. DSL or fiber line statistics need a core change, not a community driver. A driver module cannot also contribute a collector. `udm-wan-monitor` in `docsight-modules` is a precedent for an `integration` module that records router WAN status as DOCSight events.
+
+**User-reported (router survey, read-only commands run by the user):** The target host is OpenWrt 25.12.6, x86/64, about 5.5 GB RAM, Docker 29.6.1 with compose installed, Docker data on a separate 108.5 GB volume with 96.1 GB free, and a 1 GB root partition. WAN is PPPoE on `eth4`. TCP port 8765 is free. These values are a point-in-time snapshot.
+
+**Proposed deployment (not implemented):**
+
+1. DOCSight in Docker on the router, Generic Router mode, data on the large volume, port published on the LAN address only, `NET_RAW` capability retained for probes.
+2. Speedtest Tracker as a second container only after its resource use is measured. Its default web port must not be 80 (LuCI). DOCSight reaches it by LAN address and API token.
+3. A community `integration` module, the **OpenWrt WAN monitor**, that polls the router's interface status and records PPPoE reconnects (uptime reset, up/down transitions) as DOCSight events. It must use a read-only account on the router and must not change router configuration. Whether the router's interface status is sufficient for reliable reconnect detection is **Unresolved**.
+
+**Trade-offs and limits:** A monitor hosted on the router observes WAN drops but cannot observe the router itself failing. Speed tests on the router also exercise the router's own PPPoE processing, so a low result needs router load checked before it is attributed to the ISP (**Assumption**). Resource use of DOCSight and Speedtest Tracker on this hardware is **Unresolved** until measured.
+
+**Prior art (public pages read, code not audited):** `chaffed/luci-app-modemhealth` is an OpenWrt package with the same evidence goal for Arris SURFboard S33/S34 cable modems. It is a possible collaboration target or reference design for session handling and event de-duplication, not a dependency.
+
 ## Source map
 
 - `app/drivers/ch7465.py` — CH7465 authentication and HTTP session ownership.
