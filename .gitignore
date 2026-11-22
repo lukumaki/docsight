@@ -67,3 +67,6 @@ test-results/
 
 # Node
 node_modules/
+
+# Session handoff files (local only)
+.handoff/
